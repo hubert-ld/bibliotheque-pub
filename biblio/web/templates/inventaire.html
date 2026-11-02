@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "macros.html" import cote %}
+{% block title %}{{ _("Inventaire") }}{% endblock %}
+{% block content %}
+{% set inv = r.inventaire %}
+<div class="entete-page">
+  <div><h1>{{ _("Inventaire : {zone}", zone=inv.emplacement) }}</h1>
+    <span class="doux">{{ _("commencé le {date}", date=inv.debut[:16] | replace('T', ' ')) }}{% if inv.fin %} · {{ _("clôturé le {date}", date=inv.fin[:16] | replace('T', ' ')) }}{% endif %}</span></div>
+  {% if not inv.fin %}<a class="bouton" href="/scan">{{ _("← Continuer à scanner") }}</a>{% endif %}
+</div>
+
+<div class="chiffres">
+  <div class="carte"><b style="color:var(--vert)">{{ r.presents | length }}</b><span>{{ _("présents") }}</span></div>
+  <div class="carte"><b style="color:var(--rouge)">{{ r.manquants | length }}</b><span>{{ _("attendus mais non scannés") }}</span></div>
+  <div class="carte"><b style="color:var(--ambre)">{{ r.ailleurs | length }}</b><span>{{ _("trouvés ici, enregistrés ailleurs") }}</span></div>
+  <div class="carte"><b>{{ r.inconnus | length }}</b><span>{{ _("inconnus de la collection") }}</span></div>
+</div>
+
+{% macro liste(items) %}
+<table class="table empilee"><tbody>
+  {% for n in items %}
+    <tr><td style="width:10em">{{ cote(n.cote) }}</td><td class="large"><a class="titre" href="/livre/{{ n.id }}">{{ n.titre or n.reference }}</a>
+      <div class="doux" style="font-size:.85rem">{{ n.auteurs | auteurs }}</div></td>
+      <td style="font-size:.88rem">{{ caller(n) if caller else '' }}</td></tr>
+  {% endfor %}
+</tbody></table>
+{% endmacro %}
+
+{% if r.manquants %}
+  <h2>{{ _("Non scannés") }}</h2>
+  <p class="doux">{{ _("Rangés ici d'après la base, mais pas vus pendant l'inventaire : ailleurs, prêtés, ou perdus ?") }}</p>
+  {% call(n) liste(r.manquants) %}{% if n.prete %}<span class="badge doublon">{{ _("prêté") }}</span>{% endif %}{% endcall %}
+{% endif %}
+{% if r.ailleurs %}
+  <h2 style="margin-top:1.5rem">{{ _("Trouvés ici, enregistrés ailleurs") }}</h2>
+  {% call(n) liste(r.ailleurs) %}{{ _("base : {ou}", ou=n.emplacements | join(', ')) }}{% endcall %}
+{% endif %}
+{% if r.inconnus %}
+  <h2 style="margin-top:1.5rem">{{ _("Inconnus de la collection") }}</h2>
+  <p>{% for i in r.inconnus %}<code>{{ i }}</code>{{ ', ' if not loop.last }}{% endfor %}</p>
+{% endif %}
+
+{% if not inv.fin %}
+<form method="post" action="/inventaire/{{ inv.id }}/cloturer" class="carte" style="margin-top:1.5rem">
+  <h2>{{ _("Clôturer l'inventaire") }}</h2>
+  {% if r.ailleurs %}<p><label><input type="checkbox" name="ranger" value="1" checked> {{ _("Enregistrer les {n} livre(s) « d'ailleurs » à cet emplacement", n=r.ailleurs | length) }}</label></p>{% endif %}
+  {% if r.inconnus %}<p><label><input type="checkbox" name="ajouter" value="1" checked> {{ _("Ajouter les {n} livre(s) inconnu(s) à la collection, ici", n=r.inconnus | length) }}</label></p>{% endif %}
+  <button class="principal">{{ _("Clôturer") }}</button>
+</form>
+{% endif %}
+{% if r.presents %}
+  <details style="margin-top:1.5rem"><summary><b>{{ _("Présents ({n})", n=r.presents | length) }}</b></summary>{{ liste(r.presents) }}</details>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "macros.html" import options_emplacement %}
+{% block title %}{{ _("Livre sans code-barre") }}{% endblock %}
+{% block content %}
+<h1>{{ _("Ajouter un livre sans code-barre") }}</h1>
+<p class="doux" style="max-width:70ch">{{ _("Un ISBN est imprimé au verso de la page de titre ? Tapez-le simplement dans le champ du poste de scan : la fiche se remplit seule. Sinon (livres anciens, autoédités), cherchez-le à la BnF ou décrivez-le ci-dessous.") }}</p>
+
+<div class="carte manuel-contexte">
+  <div class="champ"><label for="ctx-emplacement">{{ _("Emplacement") }}</label>
+    <select id="ctx-emplacement">{{ options_emplacement(lieux, emplacement) }}</select></div>
+  <div class="champ"><label for="ctx-proprio">{{ _("Propriétaire") }}</label>
+    <input type="text" id="ctx-proprio" value="{{ proprio }}" list="liste-proprietaires" autocomplete="off"></div>
+  <datalist id="liste-proprietaires">{% for o in proprietaires %}<option value="{{ o.nom }}">{% endfor %}</datalist>
+</div>
+
+<section class="carte">
+  <h2>{{ _("1. Chercher à la BnF") }} <small class="doux" style="font:400 .9rem var(--sans)">{{ _("facultatif") }}</small></h2>
+  <form method="get" action="/manuel" class="ligne-form avec-contexte">
+    <input type="hidden" name="chercher" value="1">
+    <input type="hidden" name="emplacement" class="ctx" data-de="ctx-emplacement">
+    <input type="hidden" name="proprio" class="ctx" data-de="ctx-proprio">
+    <input type="text" name="titre" value="{{ titre }}" placeholder="{{ _('Titre') }}" style="flex:2 1 220px">
+    <input type="text" name="auteur" value="{{ auteur }}" placeholder="{{ _('Auteur') }}" style="flex:1 1 160px">
+    <input type="number" name="annee" value="{{ annee }}" placeholder="{{ _('Année') }}" style="width:7rem">
+    <button>{{ _("Chercher") }}</button>
+  </form>
+
+  {% if deja %}
+    <p class="doux" style="margin:.9rem 0 .3rem">{{ _("Déjà dans la base :") }}</p>
+    <ul class="liste-simple">{% for r in deja %}
+      <li><a href="/livre/{{ r.id }}">{{ r.titre or r.reference }}</a> <span class="doux">{{ r.auteurs | auteurs }}</span>
+        {% if not r.a_moi %}<span class="badge proprio">{{ _("chez {qui}", qui=r.proprietaire) }}</span>{% endif %}</li>
+    {% endfor %}</ul>
+  {% endif %}
+
+  {% if resultats is not none %}
+    {% if resultats %}
+      <ul class="resultats-bnf">
+      {% for r in resultats %}
+        <li>
+          <div>
+            <b class="titre">{{ r.titre }}</b>{% if r.sous_titre %} <span class="doux">— {{ r.sous_titre }}</span>{% endif %}
+            <div class="doux" style="font-size:.88rem">{{ r.auteurs | auteurs }}{% if r.editeur %} · {{ r.editeur }}{% endif %}{% if r.annee %} · {{ r.annee }}{% endif %}
+              {% if r.collection %} · <i>{{ r.collection }}</i>{% endif %}
+              · {{ ("ISBN " ~ r.isbn) if r.isbn else _("sans ISBN") }}</div>
+          </div>
+          <form method="post" action="/manuel/bnf" class="avec-contexte">
+            {% for k, v in (("ark", r.ark), ("titre", titre), ("auteur", auteur), ("annee", annee)) %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+            <input type="hidden" name="emplacement" class="ctx" data-de="ctx-emplacement">
+            <input type="hidden" name="proprio" class="ctx" data-de="ctx-proprio">
+            <button class="petit principal">{{ _("Ajouter celui-ci") }}</button>
+          </form>
+        </li>
+      {% endfor %}
+      </ul>
+      <p class="doux" style="font-size:.88rem;margin-bottom:0">{{ _("Aucun ne correspond ? Saisissez le livre à la main ci-dessous.") }}</p>
+    {% elif not err %}
+      <p class="flash err" style="margin:.9rem 0 0">{{ _("La BnF ne connaît aucun livre correspondant : saisissez-le à la main ci-dessous (titre et auteur sont déjà recopiés).") }}</p>
+    {% endif %}
+  {% endif %}
+</section>
+
+<form method="post" action="/manuel" class="carte avec-contexte">
+  <h2>{{ _("2. Saisir à la main") }}</h2>
+  <input type="hidden" name="emplacement" class="ctx" data-de="ctx-emplacement">
+  <input type="hidden" name="proprio" class="ctx" data-de="ctx-proprio">
+  <div class="grille-champs">
+    <div class="champ large"><label>{{ _("Titre *") }}</label><input type="text" name="titre" value="{{ valeurs.titre or '' }}" required></div>
+    <div class="champ large"><label>{{ _("Sous-titre") }}</label><input type="text" name="sous_titre" value="{{ valeurs.sous_titre or '' }}"></div>
+    <div class="champ large"><label>{{ _("Auteur(s), séparés par ;") }}</label><input type="text" name="auteurs" value="{{ valeurs.auteurs or '' }}" placeholder="Victor Hugo"></div>
+    <div class="champ"><label>{{ _("Éditeur") }}</label><input type="text" name="editeur" value="{{ valeurs.editeur or '' }}"></div>
+    <div class="champ"><label>{{ _("Collection") }}</label><input type="text" name="collection" value="{{ valeurs.collection or '' }}"></div>
+    <div class="champ"><label>{{ _("Année") }}</label><input type="number" name="annee" value="{{ valeurs.annee or '' }}"></div>
+    <div class="champ"><label>{{ _("Pages") }}</label><input type="number" name="pages" value="{{ valeurs.pages or '' }}"></div>
+    <div class="champ"><label>{{ _("Forme") }}</label><select name="forme"><option value="">?</option>
+      {% for f in FORMES %}<option value="{{ f }}" {{ 'selected' if valeurs.forme == f }}>{{ _(NOMS_FORMES[f]) }}</option>{% endfor %}</select></div>
+    <div class="champ"><label>{{ _("Public") }}</label><select name="public"><option value="">?</option>
+      {% for p in PUBLICS %}<option value="{{ p }}" {{ 'selected' if valeurs.public == p }}>{{ _(p) }}</option>{% endfor %}</select></div>
+    <div class="champ"><label>{{ _("Langue (fre, eng…)") }}</label><input type="text" name="langue" value="{{ valeurs.langue or '' }}" placeholder="fre"></div>
+    <div class="champ"><label>{{ _("Langue d'origine") }}</label><input type="text" name="langue_originale" value="{{ valeurs.langue_originale or '' }}"></div>
+    <div class="champ"><label>{{ _("ISBN (s'il existe)") }}</label><input type="text" name="isbn" value="{{ valeurs.isbn or '' }}"></div>
+    <div class="champ"><label>{{ _("URL de couverture") }}</label><input type="text" name="couverture_url" value="{{ valeurs.couverture_url or '' }}"></div>
+    <div class="champ large"><label>{{ _("Sujets (séparés par ;)") }}</label><input type="text" name="sujets" value="{{ valeurs.sujets or '' }}"></div>
+    <div class="champ large"><label>{{ _("Résumé") }}</label><textarea name="resume">{{ valeurs.resume or '' }}</textarea></div>
+    <div class="champ large"><label>{{ _("Note (Markdown)") }}</label><textarea name="notes" class="mono" style="min-height:4em">{{ valeurs.notes or '' }}</textarea></div>
+  </div>
+  <div class="ligne-form">
+    <button class="principal">{{ _("Ajouter") }}</button>
+    <button name="encore" value="1">{{ _("Ajouter et en saisir un autre") }}</button>
+  </div>
+  <p class="doux" style="font-size:.88rem;margin-bottom:0">{{ _("La forme (roman, essai…) et la langue d'origine servent à calculer la cote. Avec un ISBN, les catalogues complètent les champs laissés vides.") }}</p>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Emplacement et propriétaire, choisis une fois en haut, accompagnent chacun des formulaires
+  document.querySelectorAll("form.avec-contexte").forEach((f) => f.addEventListener("submit", () => {
+    f.querySelectorAll("input.ctx").forEach((i) => { i.value = document.getElementById(i.dataset.de).value; });
+  }));
+</script>
+{% endblock %}

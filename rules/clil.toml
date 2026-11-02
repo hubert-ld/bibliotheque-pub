@@ -1,0 +1,253 @@
+# Classification Clil : celle des libraires et éditeurs français
+# (rayons Fnac, Decitre, librairies indépendantes).
+#
+# IMPORTANT : le code Clil d'un livre est attribué par l'éditeur et diffusé par
+# Electre / Dilicom, services payants. Aucune source gratuite ne le fournit.
+# Il est donc DÉDUIT ici, par famille et sous-famille (libellés Clil), à partir
+# du cadre BnF, du Dewey, du public et des mots-clés. Le champ `code` est vide :
+# vous pouvez y mettre le code Clil officiel à 4 chiffres si vous le connaissez.
+#
+# Même syntaxe de conditions que rayons.toml. Première règle qui correspond = gagnante.
+
+[[regle]]
+abbr = "BD-MANGA"
+libelle = "Bande dessinée, comics, mangas › Mangas"
+code = ""
+bd = true
+mots = ["@manga"]
+
+[[regle]]
+abbr = "BD-JEUN"
+libelle = "Bande dessinée, comics, mangas › BD jeunesse"
+code = ""
+bd = true
+public = ["jeunesse"]
+
+[[regle]]
+abbr = "BD-COMICS"
+libelle = "Bande dessinée, comics, mangas › Comics"
+code = ""
+bd = true
+langue = ["eng"]
+
+[[regle]]
+abbr = "BD"
+libelle = "Bande dessinée, comics, mangas › BD tout public"
+code = ""
+bd = true
+
+[[regle]]
+abbr = "JEUN-DOC"
+libelle = "Jeunesse › Documentaires"
+code = ""
+public = ["jeunesse", "ado"]
+forme = ["documentaire"]
+
+[[regle]]
+abbr = "JEUN-ADO"
+libelle = "Jeunesse › Romans ados et young adult"
+code = ""
+public = ["ado"]
+
+[[regle]]
+abbr = "JEUN"
+libelle = "Jeunesse › Albums, romans et premières lectures"
+code = ""
+public = ["jeunesse"]
+
+[[regle]]
+abbr = "LG-POL"
+libelle = "Littérature générale › Policier et thriller"
+code = ""
+fiction = true
+mots = ["@policier"]
+
+[[regle]]
+abbr = "LG-SF"
+libelle = "Littérature générale › Science-fiction"
+code = ""
+fiction = true
+mots = ["@science_fiction"]
+
+[[regle]]
+abbr = "LG-FAN"
+libelle = "Littérature générale › Fantasy et fantastique"
+code = ""
+fiction = true
+mots = ["@fantasy"]
+
+[[regle]]
+abbr = "LG-SENT"
+libelle = "Littérature générale › Romance et littérature sentimentale"
+code = ""
+fiction = true
+mots = ["@romance"]
+
+[[regle]]
+abbr = "LG-POE"
+libelle = "Littérature générale › Poésie"
+code = ""
+forme = ["poesie"]
+
+[[regle]]
+abbr = "LG-THE"
+libelle = "Littérature générale › Théâtre"
+code = ""
+forme = ["theatre"]
+
+[[regle]]
+abbr = "LG-ROMF"
+libelle = "Littérature générale › Romans français"
+code = ""
+fiction = true
+langue = ["fre"]
+
+[[regle]]
+abbr = "LG-ROME"
+libelle = "Littérature générale › Romans étrangers"
+code = ""
+fiction = true
+
+[[regle]]
+abbr = "LG-BIO"
+libelle = "Littérature générale › Biographies, mémoires, témoignages"
+code = ""
+dewey = ["92"]
+
+[[regle]]
+abbr = "LG-ESS"
+libelle = "Littérature générale › Essais littéraires, récits"
+code = ""
+dewey = ["8"]
+
+[[regle]]
+abbr = "TOUR"
+libelle = "Tourisme et voyages"
+code = ""
+dewey = ["91"]
+
+[[regle]]
+abbr = "SHS-HIS"
+libelle = "Sciences humaines et sociales › Histoire"
+code = ""
+dewey = ["9"]
+
+[[regle]]
+abbr = "ESO"
+libelle = "Ésotérisme, occultisme"
+code = ""
+dewey = ["13"]
+
+[[regle]]
+abbr = "SHS-PSY"
+libelle = "Sciences humaines et sociales › Psychologie, psychanalyse"
+code = ""
+dewey = ["15"]
+
+[[regle]]
+abbr = "SHS-PHI"
+libelle = "Sciences humaines et sociales › Philosophie"
+code = ""
+dewey = ["1"]
+
+[[regle]]
+abbr = "REL"
+libelle = "Religion et spiritualité"
+code = ""
+dewey = ["2"]
+
+[[regle]]
+abbr = "DROIT"
+libelle = "Droit"
+code = ""
+dewey = ["34"]
+
+[[regle]]
+abbr = "ECO"
+libelle = "Entreprise, économie"
+code = ""
+dewey = ["33", "65"]
+
+[[regle]]
+abbr = "SHS-EDU"
+libelle = "Sciences humaines et sociales › Éducation"
+code = ""
+dewey = ["37"]
+
+[[regle]]
+abbr = "SHS-SOC"
+libelle = "Sciences humaines et sociales › Sociologie, politique, société"
+code = ""
+dewey = ["3"]
+
+[[regle]]
+abbr = "DICO"
+libelle = "Dictionnaires, encyclopédies, langues"
+code = ""
+dewey = ["03", "4"]
+
+[[regle]]
+abbr = "INFO"
+libelle = "Informatique"
+code = ""
+dewey = ["004", "005", "006"]
+
+[[regle]]
+abbr = "STM-MED"
+libelle = "Sciences, techniques, médecine › Médecine, santé"
+code = ""
+dewey = ["61"]
+
+[[regle]]
+abbr = "VP-CUIS"
+libelle = "Vie pratique et loisirs › Cuisine, vins"
+code = ""
+dewey = ["641"]
+
+[[regle]]
+abbr = "VP-JARD"
+libelle = "Vie pratique et loisirs › Jardinage, nature"
+code = ""
+dewey = ["63"]
+
+[[regle]]
+abbr = "VP-MAIS"
+libelle = "Vie pratique et loisirs › Maison, bricolage"
+code = ""
+dewey = ["64", "69"]
+
+[[regle]]
+abbr = "VP-SPORT"
+libelle = "Vie pratique et loisirs › Sports"
+code = ""
+dewey = ["796", "797", "798", "799"]
+
+[[regle]]
+abbr = "VP-JEUX"
+libelle = "Vie pratique et loisirs › Jeux"
+code = ""
+dewey = ["793", "794", "795"]
+
+[[regle]]
+abbr = "ARTS"
+libelle = "Arts et beaux livres"
+code = ""
+dewey = ["7"]
+
+[[regle]]
+abbr = "STM-SCI"
+libelle = "Sciences, techniques, médecine › Sciences"
+code = ""
+dewey = ["5"]
+
+[[regle]]
+abbr = "STM-TECH"
+libelle = "Sciences, techniques, médecine › Techniques"
+code = ""
+dewey = ["6"]
+
+[[regle]]
+abbr = "GEN"
+libelle = "Ouvrages de référence, généralités"
+code = ""
+dewey = ["0"]

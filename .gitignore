@@ -1,0 +1,122 @@
+# Double sécurité pour un dépôt public : tout ce qui suit doit être franchi pour publier un fichier.
+#
+# 1. Liste blanche : à la racine, seul ce qui est nommé ici peut entrer dans le dépôt.
+#    Un nouveau fichier à la racine reste donc ignoré tant qu'il n'est pas ajouté ci-dessous.
+/*
+!/.gitignore
+!/.python-version
+!/.github/
+!/DOCUMENTATION.md
+!/DOCUMENTATION.fr.md
+!/README.md
+!/README.fr.md
+!/LICENSE
+!/LICENSE.*
+!/pyproject.toml
+!/uv.lock
+!/biblio.sh
+!/biblio.cmd
+!/biblio/
+!/deploy/
+!/docs/
+!/rules/
+!/tests/
+
+# 2. Liste noire : ces motifs valent partout, y compris dans les dossiers autorisés.
+#    Elle vient après la liste blanche : la dernière règle qui correspond l'emporte.
+
+# Bases, sauvegardes et fichiers de partage (notes, prêts, noms, clés du téléphone et de Google)
+data/
+*.db
+*.db-*
+*.db.*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sql
+*.dump
+*.bak
+*.backup
+sauvegardes/
+exports/
+backups/
+
+# Couvertures et listes de livres : elles décrivent une bibliothèque réelle
+covers/
+*.jpg
+*.jpeg
+*.absente
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.txt
+!biblio/web/static/vendor/LICENCES.txt
+
+# Clés, certificats et identifiants
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.cer
+*.csr
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+*.secret
+*.secrets
+secrets.*
+credentials*
+.netrc
+
+# Réglages locaux du déploiement (adresse du Pi, chemins) : seul le modèle est publié
+# Tout deploy pour l'instant est privé
+deploy/
+deploy/pi.conf
+deploy/*.conf
+!deploy/pi.conf.example
+biblio.env
+.ssh/
+
+# Configuration de Claude et des assistants
+.claude/
+.claude.json
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+.mcp.json
+.cursor/
+.cursorrules
+.aider*
+.windsurf/
+.copilot/
+
+# Environnements et caches Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Système, éditeurs, journaux
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+~$*
+.idea/
+.vscode/
+*.swp
+*.log
+*.tmp

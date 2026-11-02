@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="{{ langue() }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{{ _("Bibliothèque") }}{% endblock %} · {{ _("Bibliothèque") }}</title>
+  <script>/* Thème choisi sur cet appareil, posé avant l'affichage (sinon : celui du système) */
+  try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css?v={{ version }}">
+  {# Appli d'écran d'accueil : sans barres de navigateur, donc en plein écran sur iPhone #}
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="apple-touch-icon" href="/static/icone-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="{{ _('Bibliothèque') }}">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#7a2a1c">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<header class="topbar">
+  <a class="brand" href="/scan">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="6" width="5" height="20" rx="1"/><rect x="10" y="4" width="5" height="22" rx="1"/><rect x="16.5" y="8" width="4.5" height="18" rx="1" transform="rotate(-12 18.75 17)"/><rect x="2" y="26" width="28" height="2.5" rx="1"/></svg>
+    <span>{{ _("Bibliothèque") }}</span>
+  </a>
+  <nav>
+    {% set liens = [("/scan", _("Scanner")), ("/catalogue", _("Catalogue")), ("/lieux", _("Lieux")), ("/a-traiter", _("À traiter")), ("/prets", _("Prêts")), ("/stats", _("Statistiques")), ("/telephone", _("Téléphone")), ("/reglages", _("Réglages"))] %}
+    {% for url, nom in liens if admin is not defined or admin or url not in ('/telephone', '/reglages') %}
+      <a href="{{ url }}" class="{{ 'actif' if chemin.startswith(url) else '' }}">{{ nom }}
+        {%- if url == '/a-traiter' and nb_a_traiter %} <span class="pastille">{{ nb_a_traiter }}</span>{% endif -%}
+        {%- if url == '/prets' and nb_prets %} <span class="pastille douce">{{ nb_prets }}</span>{% endif -%}
+      </a>
+    {% endfor %}
+  </nav>
+  {% set suite = chemin ~ ('?' ~ request.url.query if request.url.query else '') %}
+  <div class="topbar-droite">
+    <span id="file-attente" class="file-attente {{ '' if en_attente else 'vide' }}" title="{{ _('Livres en cours de description') }}">
+      <span class="point"></span><span id="file-nb">{{ en_attente }}</span> {{ _("en recherche") }}
+    </span>
+    {% if admin is not defined or admin %}{# réglages communs à tous les appareils : pas pour les téléphones #}
+    <form method="post" action="/systeme" class="choix-systeme">
+      <input type="hidden" name="suite" value="{{ suite }}">
+      <label for="systeme-global">{{ _("Classement") }}</label>
+      <select id="systeme-global" name="systeme" onchange="this.form.submit()">
+        {% for s, nom in SYSTEMES.items() %}<option value="{{ s }}" {{ 'selected' if s == systeme }}>{{ _(nom) }}</option>{% endfor %}
+      </select>
+    </form>
+    {% endif %}
+    <div class="choix-theme" role="group" aria-label="{{ _('Thème') }}">
+      <button type="button" data-theme-choix="auto" title="{{ _("Thème automatique : celui de l'appareil") }}" aria-label="{{ _('Automatique') }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" class="plein"/></svg></button>
+      <button type="button" data-theme-choix="light" title="{{ _('Thème clair') }}" aria-label="{{ _('Clair') }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button>
+      <button type="button" data-theme-choix="dark" title="{{ _('Thème sombre') }}" aria-label="{{ _('Sombre') }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></button>
+    </div>
+    {% if admin is not defined or admin %}
+    <form method="post" action="/langue" class="choix-langue" aria-label="{{ _('Langue') }}">
+      <input type="hidden" name="suite" value="{{ suite }}">
+      {% for code in LANGUES %}
+        <button name="langue" value="{{ code }}" class="{{ 'actif' if code == langue() }}" title="{{ LANGUES[code] }}"
+                {{ 'aria-current=true' if code == langue() }}>{{ code | upper }}</button>
+      {% endfor %}
+    </form>
+    {% endif %}
+  </div>
+</header>
+<main class="{% block main_class %}{% endblock %}">
+  {% if code_modifie %}<div class="flash err">{{ _("Le programme a été mis à jour depuis le lancement du serveur : redémarrez-le (Ctrl+C dans son terminal, puis relancez « biblio serve ») pour que tout fonctionne.") }}</div>{% endif %}
+  {% if msg %}<div class="flash ok">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="flash err">{{ err }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<script>window.I18N = {{ textes_js | tojson }};</script>
+<script src="/static/commun.js?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

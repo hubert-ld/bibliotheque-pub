@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Statistiques") }}{% endblock %}
+{% block content %}
+<h1>{{ _("Statistiques") }}</h1>
+<div class="chiffres">
+  <div class="carte"><b>{{ s.exemplaires }}</b><span>{{ _("livres") }}</span></div>
+  <div class="carte"><b>{{ s.notices }}</b><span>{{ _("titres différents") }}</span></div>
+  <div class="carte"><b>{{ s.auteurs }}</b><span>{{ _("auteurs") }}</span></div>
+  <div class="carte"><b>{{ '{:,}'.format(s.pages).replace(',', ' ' if langue() == 'fr' else ',') }}</b><span>{{ _("pages") }}</span></div>
+  <div class="carte"><b>{{ s.pages_moyenne }}</b><span>{{ _("pages par livre en moyenne") }}</span></div>
+  <div class="carte"><b>{{ s.titres_multiples }}</b><span>{{ _("titres en plusieurs exemplaires") }}</span></div>
+</div>
+
+{% set noms = {"trouve": _("décrites"), "manuel": _("saisies à la main"), "en_attente": _("en recherche"), "introuvable": _("introuvables"), "erreur": _("erreurs réseau")} %}
+{% set statuts = [] %}
+{% for k, v in s.statuts.items() %}{% set _x = statuts.append({"nom": noms.get(k, k), "nb": v}) %}{% endfor %}
+{% set donnees = {
+  "activite": s.activite, "par_classe": s.par_classe, "par_lieu": s.par_lieu, "par_auteur": s.par_auteur,
+  "par_editeur": s.par_editeur, "par_decennie": s.par_decennie, "par_langue": s.par_langue,
+  "par_forme": s.par_forme, "statuts": statuts | sort(attribute="nb", reverse=True),
+  "reseau_noeuds": s.reseau_noeuds, "reseau_aretes": s.reseau_aretes, "prets_en_cours": s.prets_en_cours, "prets_par_emprunteur": s.prets_par_emprunteur,
+  "prets_par_mois": s.prets_par_mois, "emprunteurs": s.emprunteurs, "plus_pretes": s.plus_pretes,
+  "par_public": s.par_public, "par_pages": s.par_pages, "par_collection": s.par_collection,
+  "par_etagere": s.par_etagere, "completude": s.completude, "plusieurs_exemplaires": s.plusieurs_exemplaires,
+  "par_lecture": s.par_lecture, "lus_par_an": s.lus_par_an, "par_etoiles": s.par_etoiles, "par_etat": s.par_etat} %}
+
+<div class="stats-root">
+  <section class="carte graphique activite">
+    <div class="entete-graphique">
+      <div><h2>{{ _("Livres ajoutés ces 12 derniers mois") }}</h2>
+        <p class="doux" id="activite-resume"></p></div>
+    </div>
+    <div class="zone-activite" id="activite"></div>
+  </section>
+
+  {% macro carte(cle, titre, vues, lien="", unite="livres", vide="", note="") %}
+  {% set noms_vues = {'liste': _('Liste'), 'camembert': _('Camembert'), 'histogramme': _('Histogramme'), 'colonnes': _('Histogramme'), 'reseau': _('Réseau')} %}
+  <section class="carte graphique" data-serie="{{ cle }}" data-vues="{{ vues }}" data-lien="{{ lien }}"
+           data-unite="{{ unite }}" data-vide="{{ vide }}">
+    <div class="entete-graphique">
+      <div><h2>{{ titre }}</h2>{% if note %}<p class="doux">{{ note }}</p>{% endif %}</div>
+      {% set liste_vues = vues.split(",") %}
+      {% if liste_vues | length > 1 %}
+      <div class="bascule" role="group" aria-label="{{ _('Affichage') }}">
+        <span class="curseur" aria-hidden="true"></span>
+        {% for v in liste_vues %}
+          <button type="button" data-vue="{{ v }}" title="{{ noms_vues[v] }}" aria-label="{{ noms_vues[v] }}">
+            {%- if v == 'liste' -%}<svg viewBox="0 0 20 20"><path d="M3 5h3M3 10h9M3 15h6"/><path d="M9 5h8" opacity=".35"/><path d="M15 10h2M12 15h5" opacity=".35"/></svg>
+            {%- elif v == 'reseau' -%}<svg viewBox="0 0 20 20"><path d="M10 6v4M10 10l-4 4M10 10l4 4"/><circle cx="10" cy="4.5" r="1.8"/><circle cx="5" cy="15" r="1.8"/><circle cx="15" cy="15" r="1.8"/></svg>
+            {%- elif v == 'camembert' -%}<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5V10l5.5 3.5"/></svg>
+            {%- else -%}<svg viewBox="0 0 20 20"><path d="M4 16V11M8 16V6M12 16V9M16 16V4"/></svg>{%- endif -%}
+          </button>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="zone-graphique"></div>
+  </section>
+  {% endmacro %}
+
+  <h2 class="titre-section">{{ _("Lecture") }}</h2>
+  <div class="chiffres chiffres-section">
+    <div class="carte"><b>{{ s.lecture_lus }}</b><span>{{ _("livres lus") }}</span></div>
+    <div class="carte"><b>{{ s.lecture_en_cours }}</b><span>{{ _("en cours") }}</span></div>
+    <div class="carte"><b>{{ s.lecture_a_lire }}</b><span>{{ _("à lire") }}</span></div>
+    <div class="carte"><b>{{ '{:,}'.format(s.lecture_pages).replace(',', ' ' if langue() == 'fr' else ',') }}</b><span>{{ _("pages lues") }}</span></div>
+    <div class="carte"><b>{{ s.lecture_note_moyenne if s.lecture_note_moyenne is not none else '—' }}</b><span>{{ _("étoiles en moyenne") }}</span></div>
+  </div>
+  <div class="deux-colonnes">
+    {{ carte("par_lecture", _("État des lectures"), "camembert,liste", vide=_("Aucune lecture renseignée.")) }}
+    {{ carte("lus_par_an", _("Livres lus par an"), "colonnes,liste", vide=_("Aucune date de fin renseignée.")) }}
+    {{ carte("par_etoiles", _("Notes données"), "liste", vide=_("Aucune note donnée.")) }}
+  </div>
+
+  <h2 class="titre-section">{{ _("Prêts") }}</h2>
+  <div class="chiffres chiffres-section">
+    <div class="carte"><b>{{ s.prets }}</b><span>{{ _("en cours") }}</span></div>
+    <div class="carte"><b>{{ s.prets_total }}</b><span>{{ _("prêts au total") }}</span></div>
+    <div class="carte"><b>{% if s.prets_duree_moyenne is none %}—{% elif s.prets_duree_moyenne == 0 %}&lt; 1{% else %}{{ s.prets_duree_moyenne }}{% endif %}</b>
+      <span>{{ _("jours en moyenne avant le retour") }}</span></div>
+    <div class="carte"><b>{{ s.emprunteurs | length }}</b><span>{{ _("emprunteurs différents") }}</span></div>
+  </div>
+  {{ carte("reseau_aretes", _("Réseau des prêts"), "reseau,liste", unite="prets", vide=_("Aucun prêt pour l'instant."),
+           note=_("Taille d'une personne : logarithme du nombre de livres de sa bibliothèque. Épaisseur d'un lien : logarithme du nombre de prêts.")) }}
+  {{ carte("prets_en_cours", _("Prêts en cours"), "durees", unite="prets", vide=_("Aucun prêt en cours."),
+           note=_("Depuis combien de temps chaque livre est sorti : les plus anciens d'abord.")) }}
+  <div class="deux-colonnes">
+    {{ carte("prets_par_emprunteur", _("En cours, par emprunteur"), "liste,camembert", unite="prets", vide=_("Aucun prêt en cours.")) }}
+    {{ carte("prets_par_mois", _("Prêts par mois"), "colonnes,liste", unite="prets", vide=_("Aucun prêt ces 12 derniers mois.")) }}
+    {{ carte("emprunteurs", _("Emprunteurs les plus fréquents"), "liste,camembert", unite="prets", vide=_("Aucun prêt pour l'instant.")) }}
+    {{ carte("plus_pretes", _("Livres les plus prêtés"), "liste", unite="prets", vide=_("Aucun prêt pour l'instant.")) }}
+  </div>
+
+  <h2 class="titre-section">{{ _("La collection") }}</h2>
+  <div class="deux-colonnes">
+    {{ carte("par_classe", _("Par classe — {systeme}", systeme=_(SYSTEMES[s.systeme])), "liste,camembert", "/catalogue?classe=") }}
+    {{ carte("par_lieu", _("Par lieu"), "camembert,liste") }}
+    {{ carte("par_auteur", _("Auteurs les plus présents"), "liste,camembert", "/catalogue?q=") }}
+    {{ carte("par_editeur", _("Éditeurs"), "liste,camembert", "/catalogue?q=") }}
+    {{ carte("par_decennie", _("Par décennie d'édition"), "histogramme,liste") }}
+    {{ carte("par_langue", _("Langue d'origine"), "camembert,liste") }}
+    {{ carte("par_forme", _("Genres littéraires"), "camembert,liste") }}
+    {{ carte("par_public", _("Public"), "camembert,liste") }}
+    {{ carte("par_pages", _("Longueur des livres"), "colonnes,liste", note=_("Par tranches de 100 pages.")) }}
+    {{ carte("par_collection", _("Collections"), "liste,camembert", "/catalogue?q=") }}
+    <section class="carte graphique pleine-largeur">
+      <div class="entete-graphique"><h2>{{ _("Records") }}</h2></div>
+      {% if s.records %}
+      <dl class="records">
+        {% for r in s.records %}<dt>{{ r.libelle }}</dt><dd><a href="{{ r.url }}">{{ r.titre }}</a> <span class="doux">{{ r.valeur }}</span></dd>{% endfor %}
+      </dl>
+      {% else %}<p class="doux">{{ _("Pas encore de données.") }}</p>{% endif %}
+    </section>
+  </div>
+
+  <h2 class="titre-section">{{ _("Rangement et fiches") }}</h2>
+  <div class="deux-colonnes">
+    {{ carte("par_etagere", _("Étagères les plus remplies"), "liste") }}
+    {{ carte("plusieurs_exemplaires", _("Titres en plusieurs exemplaires"), "liste", unite="exemplaires", vide=_("Aucun titre en double.")) }}
+    {{ carte("completude", _("Complétude des fiches"), "jauges", note=_("Ce qui est renseigné, et ce qu'il reste à compléter.")) }}
+    {{ carte("statuts", _("État des fiches"), "liste,camembert") }}
+    {{ carte("par_etat", _("État des exemplaires"), "liste,camembert", vide=_("Aucun état renseigné.")) }}
+    <section class="carte graphique">
+      <div class="entete-graphique"><h2>{{ _("Valeur de la collection") }}</h2></div>
+      <dl class="records">
+        <dt>{{ _("Valeur estimée") }}</dt><dd>{{ '{:,.2f}'.format(s.valeur_totale).replace(',', ' ').replace('.', ',') }} <span class="doux">{{ _("{n} exemplaire(s) renseigné(s)", n=s.valeur_renseignee) }}</span></dd>
+        <dt>{{ _("Prix d'achat") }}</dt><dd>{{ '{:,.2f}'.format(s.prix_total).replace(',', ' ').replace('.', ',') }} <span class="doux">{{ _("{n} exemplaire(s) renseigné(s)", n=s.prix_renseigne) }}</span></dd>
+      </dl>
+    </section>
+  </div>
+
+  {% if s.amis %}
+  <h2 class="titre-section">{{ _("Chez les amis") }}</h2>
+  <table class="table">
+    <thead><tr><th>{{ _("Ami") }}</th><th class="num">{{ _("Exemplaires") }}</th><th class="num">{{ _("Titres") }}</th>
+      <th class="num">{{ _("Que j'ai aussi") }}</th><th class="num">{{ _("Que je n'ai pas") }}</th></tr></thead>
+    <tbody>{% for a in s.amis %}
+      <tr><td><a href="/catalogue?proprio={{ a.nom | urlencode }}">{{ a.nom }}</a></td><td class="num">{{ a.exemplaires }}</td>
+        <td class="num">{{ a.titres }}</td><td class="num">{{ a.communs }}</td><td class="num">{{ a.absents }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% endif %}
+</div>
+<div class="infobulle" id="infobulle" role="tooltip" hidden></div>
+<script id="stats-donnees" type="application/json">{{ donnees | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/stats.js?v={{ version }}"></script>{% endblock %}

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Scanner") }}{% endblock %}
+{% block content %}
+<div class="scan-grille" id="scan">
+  <section class="carte">
+    <div class="entete-scan">
+      <h1>{{ _("Poste de scan") }}</h1>
+      <button type="button" class="petit" id="camera-ouvrir" hidden>{{ _("Caméra") }}</button>
+    </div>
+    <div class="camera" id="camera" hidden>
+      <div class="camera-video">
+        <video id="camera-video" playsinline muted autoplay></video>
+        <div class="viseur"><span></span></div>
+
+        <div class="cam-haut">
+          <button type="button" class="cam-lieu" id="cam-lieu" title="{{ _("Changer le mode ou l'emplacement") }}">
+            <span id="cam-mode">{{ _("Ajouter") }}</span><span id="cam-place">{{ _("Non localisé") }}</span>
+          </button>
+          <div class="cam-icones">
+            <button type="button" class="icone" id="camera-lampe" hidden aria-label="{{ _('Lampe') }}" title="{{ _('Lampe') }}">
+              <svg viewBox="0 0 24 24"><path d="M8 2h8v4l-2 4v11a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V10L8 6z"/><path d="M8 6h8M12 14v2"/></svg></button>
+            <button type="button" class="icone" id="camera-changer" hidden aria-label="{{ _('Changer de caméra') }}" title="{{ _('Changer de caméra') }}">
+              <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M15.5 12.5a3.5 3.5 0 0 0-6.2-1.8M8.5 14a3.5 3.5 0 0 0 6.2 1.8"/><path d="M9 9v2h2M15 17v-2h-2"/></svg></button>
+            <button type="button" class="icone" id="camera-plein" aria-label="{{ _('Plein écran') }}" title="{{ _('Plein écran') }}">
+              <svg class="si-normal" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+              <svg class="si-plein" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
+            <button type="button" class="icone" id="camera-fermer" aria-label="{{ _('Fermer la caméra') }}" title="{{ _('Fermer la caméra') }}">
+              <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          </div>
+        </div>
+
+        <div class="cam-reglages" id="cam-reglages" hidden>
+          <label>{{ _("Mode") }}<select id="cam-choix-mode">
+            <option value="ajout">{{ _("Ajouter") }}</option><option value="deplacement">{{ _("Déplacer") }}</option>
+            <option value="ou">{{ _("Où est-il ?") }}</option><option value="inventaire">{{ _("Inventaire") }}</option></select></label>
+          <label>{{ _("Emplacement") }}<select id="cam-choix-place"></select></label>
+          <label class="cam-case"><input type="checkbox" id="cam-son"> {{ _("Bips sonores") }}</label>
+          <button type="button" class="principal" id="cam-reglages-ok">OK</button>
+        </div>
+
+        <div class="camera-etat" id="camera-etat">{{ _("Démarrage de la caméra…") }}</div>
+
+        <div class="cam-bas">
+          <div class="cam-carte" id="cam-carte"><p>{{ _("Visez le code-barres au dos d'un livre") }}</p></div>
+          <div class="cam-pied">
+            <span id="cam-compteur">{{ _("0 livre scanné") }}</span>
+            <span id="cam-attente" class="cam-attente" hidden></span>
+            <button type="button" class="icone" id="cam-annuler" hidden aria-label="{{ _('Annuler le dernier ajout') }}" title="{{ _('Annuler le dernier ajout') }}">
+              <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+          </div>
+        </div>
+
+        <button type="button" class="cam-depart" id="cam-depart" hidden>
+          <b>{{ _("Touchez l'écran pour commencer") }}</b><small>{{ _("active les bips et garde l'écran allumé") }}</small></button>
+      </div>
+    </div>
+    <div class="modes" role="tablist">
+      <button type="button" data-mode="ajout" class="actif">{{ _("Ajouter") }}</button>
+      <button type="button" data-mode="deplacement">{{ _("Déplacer") }}</button>
+      <button type="button" data-mode="ou">{{ _("Où est-il ?") }}</button>
+      <button type="button" data-mode="inventaire">{{ _("Inventaire") }}</button>
+    </div>
+    <p class="mode-detail" id="mode-detail"></p>
+
+    {% if not lieux %}
+      <p class="flash err">{{ _("Aucun lieu n'existe encore.") }} <a href="/lieux">{{ _("Créez vos bibliothèques") }}</a>
+      {{ _("(Salon, Chambre…) pour savoir où est rangé chaque livre. Vous pouvez aussi scanner sans lieu.") }}</p>
+    {% endif %}
+    <div class="grille-champs">
+      <div class="champ">
+        <label for="lieu">{{ _("Lieu") }}</label>
+        <select id="lieu"><option value="">{{ _("Non localisé") }}</option>
+          {% for l in lieux %}<option value="{{ l.id }}">{{ l.nom }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="champ">
+        <label for="etagere">{{ _("Étagère") }}</label>
+        <select id="etagere"><option value="">—</option></select>
+      </div>
+    </div>
+
+    <div class="inventaire-panneau">
+      <div id="inv-inactif">
+        <p class="aide-scan" style="margin-bottom:.6rem">{{ _("Choisissez le lieu (et l'étagère) à vérifier, puis scannez tout ce qui s'y trouve.") }}</p>
+        <button type="button" class="principal" id="inv-demarrer">{{ _("Commencer l'inventaire") }}</button>
+      </div>
+      <div id="inv-actif" hidden>
+        <p style="margin:.2rem 0 .6rem">{{ _("Inventaire en cours :") }} <b id="inv-zone"></b></p>
+        <div class="compteurs" style="margin-top:0">
+          <div><b id="inv-presents">0</b><span>{{ _("présents") }}</span></div>
+          <div><b id="inv-manquants">0</b><span>{{ _("non scannés") }}</span></div>
+          <div><b id="inv-ailleurs">0</b><span>{{ _("d'ailleurs") }}</span></div>
+        </div>
+        <p class="ligne-form" style="margin-top:.8rem">
+          <a class="bouton principal" id="inv-rapport" href="#">{{ _("Terminer et voir le rapport") }}</a>
+          <button type="button" class="petit" id="inv-abandon">{{ _("Abandonner") }}</button>
+        </p>
+      </div>
+    </div>
+
+    <form id="form-scan" autocomplete="off" style="margin-top:.5rem">
+      <input id="code" class="saisie-scan" type="text" inputmode="numeric" placeholder="{{ _('Scannez un livre…') }}"
+             aria-label="{{ _('Code-barres ou ISBN') }}" enterkeyhint="go">
+    </form>
+    <p class="aide-scan">{{ _("La douchette tape le code puis Entrée : rien d'autre à faire. Le livre est enregistré tout de suite, sa description arrive quelques secondes plus tard.") }}</p>
+    <p class="aide-scan"><a id="lien-manuel" href="/manuel">{{ _("Pas de code-barre ? Ajouter le livre à la main") }}</a></p>
+
+    <p class="flash err file-scan" id="file-scan" hidden></p>
+    <div class="compteurs">
+      <div><b id="nb-scans">0</b><span>{{ _("scans") }}</span></div>
+      <div><b id="nb-ok">0</b><span>{{ _("réussis") }}</span></div>
+      <div><b id="nb-alertes">0</b><span>{{ _("alertes") }}</span></div>
+    </div>
+    <p class="ligne-form" style="margin-top:1rem;justify-content:space-between">
+      <label class="doux" style="font-size:.85rem"><input type="checkbox" id="son" checked> {{ _("Bips sonores") }}</label>
+    </p>
+  </section>
+
+  <section>
+    <div class="flux-entete">
+      <h2>{{ _("Derniers scans") }}</h2>
+      <button type="button" class="lien" id="vider">{{ _("Effacer la liste") }}</button>
+    </div>
+    <div class="flux" id="flux">
+      <div class="vide-etat" id="flux-vide">
+        <h2>{{ _("Prêt à scanner") }}</h2>
+        <p>{{ _("Visez le code-barres au dos du livre (EAN commençant par 978 ou 979).") }}</p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="flash-ecran" id="flash-ecran"></div>
+<script id="lieux-data" type="application/json">{{ lieux | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/scan.js?v={{ version }}"></script>
+<script src="/static/camera.js?v={{ version }}"></script>{% endblock %}

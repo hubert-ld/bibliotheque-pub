@@ -1,0 +1,196 @@
+# Rayons personnels, façon librairie : un rayon par genre, puis tri par auteur.
+# Cote affichée : "<abbr> <3 lettres de l'auteur>", ex. "ROMF DUR".
+#
+# Les règles sont lues dans l'ordre : la première qui correspond gagne.
+# Conditions possibles (toutes doivent être vraies ; dans une liste, une seule suffit) :
+#   bd = true/false         bande dessinée (cadre BnF 805, Dewey 741.5 ou sujets)
+#   fiction = true/false    roman, nouvelles, récit
+#   public = ["jeunesse", "ado", "adulte"]
+#   forme = ["poesie", "theatre", "fiction", "nouvelles", "essai", "documentaire", ...]
+#   dewey = ["84", "741.5"]  (début de l'indice Dewey)
+#   cadre = ["803"]          (début du code du cadre BnF)
+#   langue = ["fre"] / langue_non = ["fre"]   (langue d'origine)
+#   mots = ["policier", "@policier"]          (texte ou liste de mots.toml)
+# Modifiez librement puis lancez :  biblio reclassify
+
+[[regle]]
+abbr = "MAN"
+libelle = "Mangas"
+bd = true
+mots = ["@manga"]
+
+[[regle]]
+abbr = "BDJ"
+libelle = "BD jeunesse"
+bd = true
+public = ["jeunesse"]
+
+[[regle]]
+abbr = "BD"
+libelle = "Bandes dessinées"
+bd = true
+
+[[regle]]
+abbr = "JDOC"
+libelle = "Jeunesse — documentaires"
+public = ["jeunesse", "ado"]
+forme = ["documentaire"]
+
+[[regle]]
+abbr = "ADO"
+libelle = "Romans ados"
+public = ["ado"]
+
+[[regle]]
+abbr = "JEU"
+libelle = "Jeunesse — albums et romans"
+public = ["jeunesse"]
+
+[[regle]]
+abbr = "POL"
+libelle = "Policiers et thrillers"
+fiction = true
+mots = ["@policier"]
+
+[[regle]]
+abbr = "SF"
+libelle = "Science-fiction"
+fiction = true
+mots = ["@science_fiction"]
+
+[[regle]]
+abbr = "FAN"
+libelle = "Fantasy et fantastique"
+fiction = true
+mots = ["@fantasy"]
+
+[[regle]]
+abbr = "POE"
+libelle = "Poésie"
+forme = ["poesie"]
+
+[[regle]]
+abbr = "THE"
+libelle = "Théâtre"
+forme = ["theatre"]
+
+[[regle]]
+abbr = "ROMF"
+libelle = "Littérature française"
+fiction = true
+langue = ["fre"]
+
+[[regle]]
+abbr = "ROME"
+libelle = "Littérature étrangère"
+fiction = true
+
+[[regle]]
+abbr = "LIT"
+libelle = "Essais et critique littéraires"
+cadre = ["800", "804"]
+
+[[regle]]
+abbr = "LIT"
+libelle = "Essais et critique littéraires"
+dewey = ["8"]
+
+[[regle]]
+abbr = "BIO"
+libelle = "Biographies et mémoires"
+dewey = ["92"]
+
+[[regle]]
+abbr = "BIO"
+libelle = "Biographies et mémoires"
+cadre = ["920"]
+
+[[regle]]
+abbr = "VOY"
+libelle = "Géographie et voyages"
+dewey = ["91"]
+
+[[regle]]
+abbr = "HIS"
+libelle = "Histoire"
+dewey = ["9"]
+
+[[regle]]
+abbr = "ESO"
+libelle = "Ésotérisme"
+dewey = ["13"]
+
+[[regle]]
+abbr = "PSY"
+libelle = "Psychologie et développement personnel"
+dewey = ["15"]
+
+[[regle]]
+abbr = "PHI"
+libelle = "Philosophie"
+dewey = ["1"]
+
+[[regle]]
+abbr = "REL"
+libelle = "Religions et spiritualités"
+dewey = ["2"]
+
+[[regle]]
+abbr = "SOC"
+libelle = "Société, politique, économie, droit"
+dewey = ["3"]
+
+[[regle]]
+abbr = "LAN"
+libelle = "Langues et dictionnaires"
+dewey = ["4", "03"]
+
+[[regle]]
+abbr = "INF"
+libelle = "Informatique"
+dewey = ["004", "005", "006"]
+
+[[regle]]
+abbr = "SCI"
+libelle = "Sciences"
+dewey = ["5"]
+
+[[regle]]
+abbr = "SAN"
+libelle = "Santé et médecine"
+dewey = ["61"]
+
+[[regle]]
+abbr = "CUI"
+libelle = "Cuisine"
+dewey = ["641"]
+
+[[regle]]
+abbr = "PRA"
+libelle = "Maison, jardin, vie pratique"
+dewey = ["63", "64"]
+
+[[regle]]
+abbr = "TEC"
+libelle = "Techniques"
+dewey = ["6"]
+
+[[regle]]
+abbr = "SPO"
+libelle = "Sports et jeux"
+dewey = ["793", "794", "795", "796", "797", "798", "799"]
+
+[[regle]]
+abbr = "SPE"
+libelle = "Musique, cinéma, spectacles"
+dewey = ["78", "79"]
+
+[[regle]]
+abbr = "ART"
+libelle = "Arts et beaux livres"
+dewey = ["7"]
+
+[[regle]]
+abbr = "GEN"
+libelle = "Généralités et référence"
+dewey = ["0"]

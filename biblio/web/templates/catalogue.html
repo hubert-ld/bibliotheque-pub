@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% from "macros.html" import couv, cote %}
+{% block title %}{{ _("Catalogue") }}{% endblock %}
+{% block scripts %}<script src="/static/catalogue.js?v={{ version }}"></script>{% endblock %}
+{% block content %}
+<div class="entete-page">
+  <h1>{{ _("Catalogue") }} <small class="doux" style="font:400 1rem var(--sans)">{{ total }} {{ _("livre") if total == 1 else _("livres") }}</small></h1>
+  <div class="ligne-form no-print">
+    <a class="bouton petit masquer-telephone" href="/export.xlsx?systeme={{ systeme }}">{{ _("Export Excel") }}</a>
+    <a class="bouton petit masquer-telephone" href="/export.csv?systeme={{ systeme }}">CSV</a>
+    <a class="bouton petit" href="/manuel">{{ _("+ Livre sans code-barre") }}</a>
+  </div>
+</div>
+
+{% set nb_filtres = [lieu, etagere, proprio, lecture, classe, a_classer, du or au, statut] | select | list | length %}
+<form class="barre-recherche" id="form-recherche" method="get" action="/catalogue">
+  <input type="search" name="q" value="{{ q }}" placeholder="{{ _('Titre, auteur, sujet, éditeur, collection, ISBN…') }}" autofocus>
+  {# Sur téléphone, lieu, dates et facettes attendent derrière ce bouton #}
+  <button type="button" class="ouvrir-filtres" id="ouvrir-filtres" aria-haspopup="dialog">{{ _("Filtres") }}
+    {%- if nb_filtres %} <span class="pastille">{{ nb_filtres }}</span>{% endif %}</button>
+  <select name="tri" onchange="this.form.submit()" title="{{ _('Tri') }}" aria-label="{{ _('Tri') }}">
+    {% for v, nom in [("cote", _("Ordre de rangement")), ("auteur", _("Auteur")), ("titre", _("Titre")), ("annee", _("Année")), ("ajout", _("Derniers ajouts"))] %}
+      <option value="{{ v }}" {{ 'selected' if tri == v }}>{{ nom }}</option>
+    {% endfor %}
+  </select>
+  <input type="hidden" name="systeme" value="{{ systeme }}">
+  {% if proprio %}<input type="hidden" name="proprio" value="{{ proprio }}">{% endif %}
+  {% if classe %}<input type="hidden" name="classe" value="{{ classe }}">{% endif %}
+  {% if lecture %}<input type="hidden" name="lecture" value="{{ lecture }}">{% endif %}
+  {% if a_classer %}<input type="hidden" name="a_classer" value="1">{% endif %}
+  <input type="hidden" name="vue" value="{{ vue }}">
+  <button class="principal">{{ _("Rechercher") }}</button>
+</form>
+
+<div class="catalogue-grille">
+  {# Grand écran : le dialog s'efface (display: contents) et ses enfants se placent dans la grille #}
+  <dialog class="panneau-filtres" id="panneau-filtres" aria-labelledby="titre-filtres">
+  <div class="entete-filtres">
+    <h2 id="titre-filtres">{{ _("Filtres") }}</h2>
+    {% if nb_filtres %}<a href="?{{ qs(lieu='', etagere='', proprio='', lecture='', classe='', a_classer='', du='', au='', statut='', p=1) }}">{{ _("Effacer les filtres") }}</a>{% endif %}
+    <button type="button" class="fermer-filtres" id="fermer-filtres" aria-label="{{ _('Fermer') }}" title="{{ _('Fermer') }}">✕</button>
+  </div>
+  <div class="filtres-champs">
+    <select name="lieu" form="form-recherche" onchange="this.form.submit()" aria-label="{{ _('Lieu') }}">
+      <option value="">{{ _("Tous les lieux") }}</option>
+      {% for l in lieux %}<option value="{{ l.id }}" {{ 'selected' if lieu == l.id|string }}>{{ l.nom }}</option>{% endfor %}
+      <option value="aucun" {{ 'selected' if lieu == 'aucun' }}>{{ _("Non localisés") }}</option>
+    </select>
+    {% set lieu_choisi = lieux | selectattr('id', 'equalto', lieu|int) | first if lieu and lieu != 'aucun' else none %}
+    {% if lieu_choisi and lieu_choisi.etageres %}
+    <select name="etagere" form="form-recherche" onchange="this.form.submit()" aria-label="{{ _('Étagère') }}">
+      <option value="">{{ _("Toutes les étagères") }}</option>
+      {% for e in lieu_choisi.etageres %}<option value="{{ e.id }}" {{ 'selected' if etagere == e.id|string }}>{{ e.nom }}</option>{% endfor %}
+    </select>
+    {% endif %}
+    <div class="filtre-dates">
+      <span class="doux">{{ _("Ajoutés") }}</span>
+      <label>{{ _("du") }} <input type="date" name="du" form="form-recherche" value="{{ du }}" max="{{ aujourdhui }}" onchange="this.form.submit()"></label>
+      <label>{{ _("au") }} <input type="date" name="au" form="form-recherche" value="{{ au }}" max="{{ aujourdhui }}" onchange="this.form.submit()"></label>
+      <a href="?{{ qs(du=aujourdhui, au=aujourdhui, p=1) }}">{{ _("aujourd'hui") }}</a>
+      {% if du or au %}<a href="?{{ qs(du='', au='', p=1) }}" title="{{ _('Retirer le filtre de dates') }}">{{ _("✕ toutes dates") }}</a>{% endif %}
+    </div>
+  </div>
+  <aside class="facettes carte">
+    <h3>{{ _("Affichage") }}</h3>
+    <a href="?{{ qs(vue='liste', p=1) }}" class="{{ 'actif' if vue != 'grille' }}"><span>{{ _("Liste") }}</span></a>
+    <a href="?{{ qs(vue='grille', p=1) }}" class="{{ 'actif' if vue == 'grille' }}"><span>{{ _("Couvertures") }}</span></a>
+    <h3>{{ _("Propriétaire") }}</h3>
+    {% for o in proprietaires %}
+      {% set v = '' if o.local else o.nom %}
+      <a href="?{{ qs(proprio=v, classe='', p=1) }}" class="{{ 'actif' if proprio == v }}">
+        <span>{{ _("Mes livres") if o.local else o.nom }}</span><span>{{ o.nb }}</span></a>
+    {% endfor %}
+    {% if proprietaires|length > 1 %}
+    <a href="?{{ qs(proprio='tous', classe='', p=1) }}" class="{{ 'actif' if proprio == 'tous' }}"><span>{{ _("Tout le monde") }}</span></a>
+    {% else %}
+    <p class="aide-facette">{{ _("Aucun catalogue d'ami pour l'instant. Demandez à un ami son fichier de partage (Réglages › « Partager avec un ami »), puis : biblio merge fichier.db --as Victor") }}</p>
+    {% endif %}
+    <h3>{{ _("Lecture") }}</h3>
+    <a href="?{{ qs(lecture='', p=1) }}" class="{{ 'actif' if not lecture }}"><span>{{ _("Tout") }}</span></a>
+    {% for v in LECTURES %}
+      <a href="?{{ qs(lecture=v, p=1) }}" class="{{ 'actif' if lecture == v }}"><span>{{ _(NOMS_LECTURES[v]) }}</span></a>
+    {% endfor %}
+    <h3>{{ _("Classement") }}</h3>
+    {% for s, nom in SYSTEMES.items() %}
+      <a href="?{{ qs(systeme=s, classe='', p=1) }}" class="{{ 'actif' if s == systeme }}"><span>{{ _(nom) }}</span></a>
+    {% endfor %}
+    <h3>{{ _("Classes") }}</h3>
+    <a href="?{{ qs(classe='', a_classer='', p=1) }}" class="{{ 'actif' if not classe and not a_classer }}"><span>{{ _("Toutes") }}</span></a>
+    {% for c in classes %}
+      <a href="?{{ qs(classe=c.libelle, a_classer='', p=1) }}" class="{{ 'actif' if classe == c.libelle }}" title="{{ c.libelle }}">
+        <span>{{ c.libelle }}</span><span>{{ c.nb }}</span></a>
+    {% endfor %}
+    <a href="?{{ qs(a_classer='1', classe='', p=1) }}" class="{{ 'actif' if a_classer }}"><span>{{ _("À classer") }}</span></a>
+  </aside>
+  </dialog>
+
+  <section>
+    {% if not rows %}
+      <div class="vide-etat carte">
+        {% if q or classe or lieu or a_classer or du or au or proprio or lecture %}
+          <h2>{{ _("Aucun livre ne correspond") }}</h2><p><a href="/catalogue">{{ _("Effacer les filtres") }}</a></p>
+        {% else %}
+          <h2>{{ _("La bibliothèque est vide") }}</h2><p><a href="/scan">{{ _("Scannez vos premiers livres") }}</a></p>
+        {% endif %}
+      </div>
+    {% elif vue == 'grille' %}
+      <div class="grille-couv">
+        {% for r in rows %}
+          <a href="/livre/{{ r.id }}">{{ couv(r) }}
+            <span>{{ cote(r.cote) }}</span>
+            <span class="t">{{ r.titre or r.reference }}</span><span class="a">{{ r.auteurs | auteurs }}</span></a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <table class="table" id="table-catalogue">
+        <thead><tr>
+          <th class="col-choix"><label><input type="checkbox" id="choix-page" aria-label="{{ _('Sélectionner toute la page') }}" title="{{ _('Sélectionner toute la page') }}">
+            <span class="seul-telephone">{{ _("Sélectionner toute la page") }}</span></label></th>
+          <th>{{ _("Cote") }}</th><th>{{ _("Livre") }}</th><th class="masquer-mobile">{{ _("Édition") }}</th><th>{{ _("Emplacement") }}</th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+          <tr>
+            <td class="col-choix"><input type="checkbox" name="ex" value="{{ r.exemplaire_id }}" form="lot"
+                aria-label="{{ _('Sélectionner {titre}', titre=r.titre or r.reference) }}"></td>
+            <td class="col-cote">{{ cote(r.cote) }}{% if r.origine == 'manuel' %} <span class="origine manuel" title="{{ _('Cote fixée à la main') }}">✎</span>{% endif %}</td>
+            <td class="col-livre"><div class="cellule-livre">{{ couv(r) }}
+              <div><a class="titre" href="/livre/{{ r.id }}">{{ r.titre or _('Titre inconnu') }}</a>
+                {% if r.statut != 'trouve' and r.statut != 'manuel' %} <span class="badge {{ r.statut }}">{{ nom_statut(r.statut) }}</span>{% endif %}
+                {% if r.lecture %}<span class="badge lecture-{{ r.lecture }}">{{ _(NOMS_LECTURES[r.lecture]) }}{% if r.etoiles %} {{ "★" * r.etoiles }}{% endif %}</span>{% endif %}
+                <div class="doux" style="font-size:.88rem">{{ r.auteurs | auteurs }}</div></div></div></td>
+            <td class="masquer-mobile doux" style="font-size:.88rem">{{ r.editeur or '' }}{% if r.annee %}, {{ r.annee }}{% endif %}
+              {% if r.collection %}<br><i>{{ r.collection.split(' | ')[-1] }}</i>{% endif %}</td>
+            <td class="col-lieu" style="font-size:.9rem">{% if not r.a_moi %}<span class="badge proprio">{{ _("chez {qui}", qui=r.proprietaire) }}</span>
+                {% if r.emplacement %}<br>{% endif %}{% endif %}{{ r.emplacement }}
+              {% if r.emprunteur %}<br><span class="badge doublon">{{ _("prêté à {qui}", qui=r.emprunteur) }}</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+
+      {# Barre d'opérations groupées : apparaît dès qu'un livre est coché #}
+      <form id="lot" method="post" action="/catalogue/lot" class="barre-lot" hidden>
+        <input type="hidden" name="suite" value="/catalogue?{{ qs() }}">
+        {% for k in ("q", "lieu", "etagere", "classe", "statut", "du", "au", "systeme", "proprio", "lecture") %}
+          <input type="hidden" name="{{ k }}" value="{{ filtres.get(k, '') }}">{% endfor %}
+        <input type="hidden" name="a_classer" value="{{ '1' if a_classer else '' }}">
+        <input type="hidden" name="tous" id="lot-tous" value="" data-total="{{ total }}">
+        <div class="lot-selection">
+          <b id="lot-compte"></b>
+          {% if total > rows|length %}<button type="button" class="lien" id="lot-tout">{{ _("Sélectionner les {n} résultats", n=total) }}</button>{% endif %}
+          <button type="button" class="lien" id="lot-aucun">{{ _("Tout désélectionner") }}</button>
+        </div>
+        <div class="lot-actions">
+          <select name="emplacement" required aria-label="{{ _('Emplacement') }}">
+            <option value="" disabled selected>{{ _("Ranger dans…") }}</option>
+            {% for l in lieux %}
+              <option value="{{ l.id }}:">{{ l.nom }}</option>
+              {% for e in l.etageres %}<option value="{{ l.id }}:{{ e.id }}">&nbsp;&nbsp;&nbsp;{{ l.nom }} › {{ e.nom }}</option>{% endfor %}
+            {% endfor %}
+            <option value=":">{{ _("Non localisé") }}</option>
+          </select>
+          <button name="action" value="deplacer" class="principal">{{ _("Ranger") }}</button>
+          <span class="lot-don">
+            <input type="text" name="vers" id="lot-vers" list="liste-proprietaires" placeholder="{{ _('Donner à…') }}"
+                   aria-label="{{ _('Donner à…') }}" autocomplete="off">
+            <button name="action" value="donner" id="lot-donner" formnovalidate>{{ _("Donner…") }}</button>
+          </span>
+          <button name="action" value="retirer" class="danger" formnovalidate
+                  onclick='return confirm({{ _("Retirer ces livres de la collection ? Leurs fiches seront supprimées.") | tojson }})'>{{ _("Retirer…") }}</button>
+        </div>
+        <datalist id="liste-proprietaires">{% for o in proprietaires %}<option value="{{ o.nom }}">{% endfor %}</datalist>
+      </form>
+    {% endif %}
+    {% if pages > 1 %}
+      <nav class="pagination">
+        {% for i in range(1, pages + 1) %}
+          {% if i == p %}<span class="actif">{{ i }}</span>
+          {% elif i <= 2 or i > pages - 2 or (i - p)|abs <= 2 %}<a href="?{{ qs(p=i) }}">{{ i }}</a>
+          {% elif (i - p)|abs == 3 %}<span>…</span>{% endif %}
+        {% endfor %}
+      </nav>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

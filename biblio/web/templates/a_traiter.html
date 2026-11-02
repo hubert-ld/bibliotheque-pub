@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ _("À traiter") }}{% endblock %}
+{% block content %}
+<div class="entete-page">
+  <h1>{{ _("À traiter") }}</h1>
+  {% if data.erreur or data.introuvable or data.partiels %}
+  <form method="post" action="/a-traiter/relancer"><button>{{ _("Relancer la recherche des introuvables et erreurs") }}</button></form>
+  {% endif %}
+</div>
+{% set sections = [
+  ("en_attente", _("En cours de recherche"), _("Description en cours dans les catalogues, quelques secondes par livre.")),
+  ("erreur", _("Erreurs réseau"), _("Les catalogues n'ont pas répondu. Relancez quand la connexion est revenue.")),
+  ("introuvable", _("Introuvables"), _("Aucun catalogue ne connaît ces ISBN : complétez les fiches à la main.")),
+  ("partiels", _("Réponses incomplètes"), _("Ces fiches sont décrites, mais un catalogue n'a pas répondu : relancez pour le réinterroger.")),
+  ("sans_cote", _("Sans cote dans le système affiché"), _("Pas assez d'informations pour déduire une cote : indiquez la forme (roman, essai…) ou la cote.")),
+  ("non_localises", _("Non localisés"), _("Ces livres n'ont pas de lieu : rangez-les depuis le catalogue (filtre « Non localisés »), leur fiche ou le poste de scan.")),
+] %}
+{% set ns = namespace(vide=true) %}
+{% for cle, titre, aide in sections if data[cle] %}
+  {% set ns.vide = false %}
+  <section class="carte">
+    <h2>{{ titre }} <small class="doux" style="font:400 .95rem var(--sans)">{{ data[cle] | length }}</small></h2>
+    <p class="doux" style="margin-top:-.3rem">{{ aide }}</p>
+    <table class="table empilee" style="border:0"><tbody>
+      {% for n in data[cle][:200] %}
+        <tr><td style="width:11em"><code>{{ n.reference }}</code></td>
+          <td class="large"><a href="/livre/{{ n.id }}">{{ n.titre or _('Compléter la fiche') }}</a>
+            <span class="doux">{{ n.auteurs | auteurs }}</span></td>
+          <td class="doux" style="font-size:.85rem">{{ n.cree_le[:10] }}</td></tr>
+      {% endfor %}
+    </tbody></table>
+  </section>
+{% endfor %}
+{% if ns.vide %}<div class="vide-etat carte"><h2>{{ _("Tout est en ordre") }}</h2><p>{{ _("Chaque livre est décrit, coté et localisé.") }}</p></div>{% endif %}
+{% endblock %}

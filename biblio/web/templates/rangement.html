@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "macros.html" import cote %}
+{% block title %}{{ _("Rangement") }} · {{ lieu.nom }}{% endblock %}
+{% block content %}
+<div class="entete-page">
+  <div><h1>{{ _("{lieu} — ordre de rangement", lieu=lieu.nom) }}</h1>
+    <span class="doux">{{ _("{n} livre(s), classés selon : {systeme}", n=rows|length, systeme=_(SYSTEMES[systeme])) }}</span></div>
+  <form class="ligne-form no-print" method="get">
+    <select name="etagere" onchange="this.form.submit()">
+      <option value="">{{ _("Toutes les étagères") }}</option>
+      {% for e in etageres %}<option value="{{ e.id }}" {{ 'selected' if etagere == e.id|string }}>{{ e.nom }}</option>{% endfor %}
+    </select>
+    <select name="systeme" onchange="this.form.submit()">
+      {% for s, nom in SYSTEMES.items() %}<option value="{{ s }}" {{ 'selected' if s == systeme }}>{{ _(nom) }}</option>{% endfor %}
+    </select>
+    <button type="button" onclick="window.print()">{{ _("Imprimer") }}</button>
+  </form>
+</div>
+<div class="rangement carte">
+  {% for groupe in rows | groupby('emplacement') %}
+    <h2>{{ groupe.grouper }}</h2>
+    <table class="table" style="border:0">
+      <thead><tr><th style="width:3em">#</th><th style="width:12em">{{ _("Cote") }}</th><th>{{ _("Titre") }}</th><th>{{ _("Auteur") }}</th><th>{{ _("Classe") }}</th></tr></thead>
+      <tbody>
+      {% for r in groupe.list %}
+        <tr><td class="doux">{{ loop.index }}</td><td>{{ cote(r.cote) }}</td>
+          <td><a href="/livre/{{ r.notice_id }}">{{ r.titre or r.reference }}</a></td>
+          <td>{{ r.auteurs | auteurs }}</td><td class="doux" style="font-size:.85rem">{{ r.libelle or '' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="vide-etat">{{ _("Aucun livre ici.") }}</p>
+  {% endfor %}
+</div>
+{% endblock %}

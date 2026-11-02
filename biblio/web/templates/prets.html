@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Prêts") }}{% endblock %}
+{% block content %}
+<h1>{{ _("Prêts") }}</h1>
+{% if prets %}
+<table class="table empilee">
+  <thead><tr><th>{{ _("Livre") }}</th><th>{{ _("Emprunteur") }}</th><th>{{ _("Depuis") }}</th><th></th></tr></thead>
+  <tbody>{% for p in prets %}
+    <tr><td class="large"><a class="titre" href="/livre/{{ p.notice_id }}">{{ p.titre or p.reference }}</a> <span class="doux">{{ p.auteurs | auteurs }}</span></td>
+      <td>{{ p.emprunteur }}</td><td>{{ p.date_pret[:10] }}</td>
+      <td style="width:1%"><form method="post" action="/exemplaire/{{ p.exemplaire_id }}/rendre"><button class="petit">{{ _("Rendu") }}</button></form></td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}
+<div class="vide-etat carte"><h2>{{ _("Aucun prêt en cours") }}</h2><p>{{ _("Pour prêter un livre, ouvrez sa fiche puis « Prêter… ».") }}</p></div>
+{% endif %}
+{% set rendus = historique | selectattr('date_retour') | list %}
+{% if rendus %}
+<h2 style="margin-top:2rem">{{ _("Historique") }}</h2>
+<table class="table empilee"><tbody>{% for p in rendus %}
+  <tr><td class="large"><a href="/livre/{{ p.notice_id }}">{{ p.titre or p.reference }}</a></td><td>{{ p.emprunteur }}</td>
+    <td class="doux">{{ _("du {debut} au {fin}", debut=p.date_pret[:10], fin=p.date_retour[:10]) }}</td></tr>
+{% endfor %}</tbody></table>
+{% endif %}
+{% endblock %}

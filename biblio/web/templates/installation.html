@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="{{ langue() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ _("Installer le certificat") }} · {{ _("Bibliothèque") }}</title>
+<style>
+  :root { --papier:#f6f1e7; --carte:#fffcf6; --encre:#2a2018; --doux:#75685a; --trait:#e3d9c7; --accent:#7a2a1c; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --papier:#1a1613; --carte:#241e19; --encre:#efe5d6; --doux:#a8998a; --trait:#3a3129; --accent:#e08a6d; color-scheme: dark; } }
+  body { margin:0; background:var(--papier); color:var(--encre); font:16px/1.5 -apple-system, system-ui, sans-serif; }
+  main { max-width:620px; margin:0 auto; padding:1.25rem 16px 3rem; }
+  h1 { font:600 1.6rem "Iowan Old Style", Georgia, serif; margin:.3rem 0 1rem; }
+  h2 { font:600 1.15rem "Iowan Old Style", Georgia, serif; margin:0 0 .5rem; }
+  .carte { background:var(--carte); border:1px solid var(--trait); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
+  .bouton { display:block; text-align:center; background:var(--accent); color:#fff; border-radius:10px; padding:.85rem; font-weight:600; text-decoration:none; font-size:1.05rem; }
+  ol { padding-left:1.3rem; margin:.4rem 0 0; }
+  li { margin:.35rem 0; }
+  .doux { color:var(--doux); font-size:.9rem; }
+  code { word-break:break-all; font-size:.8rem; }
+  details summary { cursor:pointer; font-weight:600; }
+  .alerte { border-color:var(--accent); border-width:2px; }
+  .ligne { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-bottom:0; }
+  .ligne code { flex:1; min-width:0; background:var(--papier); padding:.4rem .5rem; border-radius:6px; }
+  button { font:inherit; padding:.45rem .9rem; border-radius:8px; border:1px solid var(--trait); background:var(--carte); color:var(--encre); }
+  [data-os], [data-nav="ios-autre"], [data-nav="firefox-android"] { display:none; }
+  body.ios [data-os="ios"], body.android [data-os="android"], body.autre [data-os] { display:block; }
+  body.ios-autre [data-nav="ios-autre"], body.firefox-android [data-nav="firefox-android"] { display:block; }
+  body.ios-autre [data-nav="pas-ios-autre"], body.ios-autre [data-os="ios"] { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{ _("Installer le certificat de la bibliothèque") }}</h1>
+  <p class="doux">{{ _("Une seule fois par téléphone. Il permet au navigateur d'ouvrir la caméra sur la page de scan, servie par votre ordinateur de façon chiffrée.") }}</p>
+
+  <section class="carte alerte" data-nav="ios-autre">
+    <h2>{{ _("Ouvrez cette page dans Safari") }}</h2>
+    <p style="margin-top:0">{{ _("Sur iPhone, seul Safari peut installer un certificat : les autres navigateurs (Firefox, Chrome…) annulent le téléchargement. Copiez l'adresse et collez-la dans Safari. Ensuite, tous les navigateurs de l'iPhone, Firefox compris, feront confiance à la bibliothèque.") }}</p>
+    <p class="ligne"><code id="adresse"></code> <button type="button" id="copier" data-copie="{{ _('Copié') }}">{{ _("Copier") }}</button></p>
+  </section>
+
+  <p data-nav="pas-ios-autre"><a class="bouton" id="telecharger" href="/bibliotheque-ca.crt">{{ _("1. Télécharger le certificat") }}</a></p>
+
+  <section class="carte" data-os="ios">
+    <h2>{{ _("iPhone (Safari)") }}</h2>
+    <ol>
+      <li>{{ _("Touchez <b>Autoriser</b> quand Safari propose de télécharger un profil de configuration.") | safe }}</li>
+      <li>{{ _("Ouvrez <b>Réglages › Général › VPN et gestion de l'appareil</b>, touchez « Bibliothèque perso », puis <b>Installer</b>.") | safe }}</li>
+      <li>{{ _("Ouvrez <b>Réglages › Général › Informations › Réglages des certificats</b> (tout en bas) et activez la confiance totale pour « Bibliothèque perso ».") | safe }}</li>
+    </ol>
+  </section>
+
+  <section class="carte" data-os="android">
+    <h2>{{ _("Android (Chrome)") }}</h2>
+    <ol>
+      <li>{{ _("Le fichier bibliotheque-ca.crt est téléchargé.") }}</li>
+      <li>{{ _("Ouvrez <b>Paramètres › Sécurité et confidentialité › Plus de paramètres de sécurité › Chiffrement et identifiants › Installer un certificat › Certificat CA</b> (les intitulés varient selon les marques : cherchez « certificat » dans les Paramètres).") | safe }}</li>
+      <li>{{ _("Confirmez « Installer quand même », puis choisissez le fichier téléchargé.") }}</li>
+    </ol>
+    <div data-nav="firefox-android">
+      <p style="margin-bottom:0">{{ _("<b>Avec Firefox</b>, une étape de plus : Firefox n'utilise pas d'office les certificats installés dans Android. Ouvrez <b>Paramètres › À propos de Firefox</b>, touchez plusieurs fois le logo Firefox pour afficher les paramètres secrets, puis revenez dans <b>Paramètres › Paramètres secrets</b> et activez <b>« Utiliser des certificats d'autorité tiers »</b>. Plus simple : faites l'étape 2 avec Chrome.") | safe }}</p>
+    </div>
+  </section>
+
+  <section class="carte">
+    <h2>{{ _("2. Revenez à l'ordinateur") }}</h2>
+    <p style="margin:0">{{ _("Scannez le second QR code, « Scanner », sur la page « Téléphone » de la bibliothèque.") }}</p>
+  </section>
+
+  <details class="carte">
+    <summary>{{ _("Sans installer le certificat ?") }}</summary>
+    <p>{{ _("C'est possible : à l'ouverture de la page de scan, le navigateur affiche un avertissement (« connexion non privée »). Touchez <b>Afficher les détails › consulter ce site</b> (iPhone) ou <b>Paramètres avancés › Continuer</b> (Android). Il faudra le refaire de temps en temps, et la caméra peut rester bloquée sur certains téléphones.") | safe }}</p>
+  </details>
+  <p class="doux">{{ _("Empreinte SHA-256 du certificat, identique à celle affichée sur l'ordinateur :") }}<br><code>{{ empreinte }}</code></p>
+</main>
+<script>
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(ua);
+  const classes = [ios ? "ios" : android ? "android" : "autre"];
+  // Sur iPhone, seul Safari installe les profils (FxiOS = Firefox, CriOS = Chrome, EdgiOS = Edge…)
+  if (ios && /FxiOS|CriOS|EdgiOS|OPiOS|GSA|DuckDuckGo|Brave/.test(ua)) classes.push("ios-autre");
+  if (android && /Firefox/.test(ua)) classes.push("firefox-android");
+  document.body.className = classes.join(" ");
+  // Android ne permet plus d'installer un certificat depuis le navigateur : simple fichier
+  if (android) document.getElementById("telecharger").href = "/bibliotheque-ca.crt?fichier=1";
+  document.getElementById("adresse").textContent = location.href;
+  document.getElementById("copier").addEventListener("click", async (ev) => {
+    try { await navigator.clipboard.writeText(location.href); ev.target.textContent = ev.target.dataset.copie; }
+    catch (e) { getSelection().selectAllChildren(document.getElementById("adresse")); }
+  });
+</script>
+</body>
+</html>

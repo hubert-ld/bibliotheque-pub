@@ -1,0 +1,261 @@
+# Thema : classification internationale des sujets du livre (EDItEUR),
+# successeur commun du Clil, de BISAC et de BIC dans le commerce du livre.
+#
+# Comme le Clil, Thema est attribué par l'éditeur et n'est pas diffusé
+# gratuitement par livre : il est DÉDUIT ici, au niveau des grandes catégories.
+# Même syntaxe de conditions que rayons.toml.
+
+[[regle]]
+code = "XAM"
+libelle = "Mangas"
+bd = true
+mots = ["@manga"]
+
+[[regle]]
+code = "XAK"
+libelle = "Comics (tradition américaine et britannique)"
+bd = true
+langue = ["eng"]
+
+[[regle]]
+code = "XAB"
+libelle = "Bandes dessinées (tradition européenne)"
+bd = true
+
+[[regle]]
+code = "YN"
+libelle = "Jeunesse : documentaires"
+public = ["jeunesse", "ado"]
+forme = ["documentaire"]
+
+[[regle]]
+code = "YF"
+libelle = "Jeunesse : fiction"
+public = ["jeunesse", "ado"]
+fiction = true
+
+[[regle]]
+code = "YB"
+libelle = "Jeunesse : albums et éveil"
+public = ["jeunesse"]
+
+[[regle]]
+code = "YF"
+libelle = "Jeunesse : fiction"
+public = ["ado"]
+
+[[regle]]
+code = "FF"
+libelle = "Fiction : policier et mystère"
+fiction = true
+mots = ["@policier"]
+
+[[regle]]
+code = "FL"
+libelle = "Fiction : science-fiction"
+fiction = true
+mots = ["@science_fiction"]
+
+[[regle]]
+code = "FM"
+libelle = "Fiction : fantasy"
+fiction = true
+mots = ["@fantasy"]
+
+[[regle]]
+code = "FR"
+libelle = "Fiction : romance"
+fiction = true
+mots = ["@romance"]
+
+[[regle]]
+code = "FV"
+libelle = "Fiction : roman historique"
+fiction = true
+mots = ["@historique"]
+
+[[regle]]
+code = "FB"
+libelle = "Fiction : générale et littéraire"
+fiction = true
+
+[[regle]]
+code = "DC"
+libelle = "Poésie"
+forme = ["poesie"]
+
+[[regle]]
+code = "DD"
+libelle = "Théâtre"
+forme = ["theatre"]
+
+[[regle]]
+code = "DNB"
+libelle = "Biographies"
+dewey = ["92"]
+
+[[regle]]
+code = "DNL"
+libelle = "Essais littéraires"
+forme = ["essai"]
+dewey = ["8"]
+
+[[regle]]
+code = "DS"
+libelle = "Littérature : histoire et critique"
+dewey = ["8"]
+
+[[regle]]
+code = "WT"
+libelle = "Voyages et tourisme"
+dewey = ["91"]
+
+[[regle]]
+code = "NH"
+libelle = "Histoire"
+dewey = ["9"]
+
+[[regle]]
+code = "VX"
+libelle = "Ésotérisme, corps et esprit"
+dewey = ["13"]
+
+[[regle]]
+code = "JM"
+libelle = "Psychologie"
+dewey = ["15"]
+
+[[regle]]
+code = "QD"
+libelle = "Philosophie"
+dewey = ["1"]
+
+[[regle]]
+code = "QR"
+libelle = "Religion et croyances"
+dewey = ["2"]
+
+[[regle]]
+code = "RN"
+libelle = "Environnement"
+dewey = ["363.7"]
+
+[[regle]]
+code = "JP"
+libelle = "Politique et gouvernement"
+dewey = ["32"]
+
+[[regle]]
+code = "KC"
+libelle = "Économie"
+dewey = ["33"]
+
+[[regle]]
+code = "L"
+libelle = "Droit"
+dewey = ["34"]
+
+[[regle]]
+code = "JN"
+libelle = "Éducation"
+dewey = ["37"]
+
+[[regle]]
+code = "JB"
+libelle = "Société et culture"
+dewey = ["3"]
+
+[[regle]]
+code = "C"
+libelle = "Langues"
+dewey = ["4"]
+
+[[regle]]
+code = "GB"
+libelle = "Ouvrages de référence"
+dewey = ["03"]
+
+[[regle]]
+code = "U"
+libelle = "Informatique"
+dewey = ["004", "005", "006"]
+
+[[regle]]
+code = "PB"
+libelle = "Mathématiques"
+dewey = ["51"]
+
+[[regle]]
+code = "P"
+libelle = "Sciences"
+dewey = ["5"]
+
+[[regle]]
+code = "M"
+libelle = "Médecine"
+dewey = ["61"]
+
+[[regle]]
+code = "WB"
+libelle = "Cuisine et boissons"
+dewey = ["641"]
+
+[[regle]]
+code = "WM"
+libelle = "Jardinage"
+dewey = ["635"]
+
+[[regle]]
+code = "WK"
+libelle = "Maison et bricolage"
+dewey = ["64", "69"]
+
+[[regle]]
+code = "KJ"
+libelle = "Entreprise et gestion"
+dewey = ["65"]
+
+[[regle]]
+code = "T"
+libelle = "Technologie et ingénierie"
+dewey = ["6"]
+
+[[regle]]
+code = "S"
+libelle = "Sports"
+dewey = ["796", "797", "798", "799"]
+
+[[regle]]
+code = "WD"
+libelle = "Loisirs, jeux"
+dewey = ["793", "794", "795"]
+
+[[regle]]
+code = "ATF"
+libelle = "Cinéma"
+dewey = ["791.4"]
+
+[[regle]]
+code = "AV"
+libelle = "Musique"
+dewey = ["78"]
+
+[[regle]]
+code = "AJ"
+libelle = "Photographie"
+dewey = ["77"]
+
+[[regle]]
+code = "AM"
+libelle = "Architecture"
+dewey = ["72"]
+
+[[regle]]
+code = "A"
+libelle = "Arts"
+dewey = ["7"]
+
+[[regle]]
+code = "G"
+libelle = "Référence, information"
+dewey = ["0"]

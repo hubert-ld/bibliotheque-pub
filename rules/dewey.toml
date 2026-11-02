@@ -1,0 +1,62 @@
+# Classification décimale de Dewey
+#
+# Indice fourni par la BnF (zone 676) ou Open Library quand il existe.
+# Sinon (romans, BD, jeunesse : la BnF ne donne pas de Dewey), il est déduit :
+#   - BD                         -> 741.5
+#   - littérature                -> 8 + langue d'origine + genre (ex. roman français = 843)
+#   - autre cadre BnF            -> indice voisin (ex. cadre 944 -> 944)
+
+# Nombre de décimales gardées dans la cote affichée (l'indice complet reste stocké)
+decimales_cote = 3
+
+# Préfixe de cote selon le public (comme en bibliothèque : "J 843 SAI")
+[prefixes]
+jeunesse = "J"
+ado = "J"
+
+# Littératures : base de l'indice selon la langue d'origine (ISO 639-2)
+# L'indice final = base + chiffre du genre (ex. "891.7" + "3" = 891.73, roman russe)
+# Note : sans information sur la nationalité, l'anglais est classé en 82x (et non 81x, USA).
+[litterature]
+fre = { base = "84" }
+eng = { base = "82" }
+ger = { base = "83" }
+ita = { base = "85" }
+spa = { base = "86" }
+por = { base = "869." }
+lat = { base = "87" }
+grc = { base = "88" }
+gre = { base = "889." }
+cat = { base = "849.9" }
+oci = { base = "849." }
+dut = { base = "839.31" }
+swe = { base = "839.7" }
+dan = { base = "839.81" }
+nor = { base = "839.82" }
+rus = { base = "891.7" }
+pol = { base = "891.85" }
+cze = { base = "891.86" }
+bre = { base = "891.66" }
+heb = { base = "892.4" }
+ara = { base = "892.7" }
+chi = { base = "895.1" }
+jpn = { base = "895.6" }
+kor = { base = "895.7" }
+
+# Chiffre du genre littéraire
+[genres]
+poesie = "1"
+theatre = "2"
+fiction = "3"
+nouvelles = "3"
+essai = "4"
+discours = "5"
+lettres = "6"
+humour = "7"
+mixte = "8"
+
+# Les intitulés officiels appartiennent à OCLC et ne sont pas fournis : un livre est donc regroupé par
+# tranche de centaines (843 -> "800-899"). Pour afficher vos propres intitulés, ajoutez ici une table
+# puis lancez `biblio reclassify` :
+#   [libelles]
+#   "843" = "Mes romans"

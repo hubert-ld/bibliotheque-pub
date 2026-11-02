@@ -1,0 +1,32 @@
+# Listes de mots-clés partagées par les règles (clil, thema, rayons).
+# Une règle y fait référence avec "@nom", ex. mots = ["@policier"].
+# La recherche se fait sans accents ni majuscules dans : sujets Rameau,
+# collection et éditeur.
+
+policier = [
+    "policier", "polar", "thriller", "roman noir", "romans noirs", "serie noire",
+    "detective", "mystery", "crime fiction", "suspense", "espionnage",
+    "le masque", "rivages noir", "babel noir", "fleuve noir", "points policier",
+    "folio policier", "black lab", "spécial suspense", "special suspense",
+]
+science_fiction = [
+    "science-fiction", "science fiction", "anticipation", "space opera", "dystopie",
+    "folio sf", "presence du futur", "lunes d'encre", "ailleurs et demain",
+    "j'ai lu science-fiction", "le belial", "l'atalante",
+]
+fantasy = [
+    "fantasy", "fantastique", "merveilleux", "horreur", "epouvante",
+    "bragelonne", "milady", "mnemos", "pocket imaginaire",
+]
+romance = ["romance", "roman sentimental", "romans sentimentaux", "harlequin", "love story"]
+historique = ["romans historiques", "roman historique", "historical fiction"]
+bd = [
+    "bandes dessinees", "bande dessinee", "roman graphique", "romans graphiques",
+    "comic books", "comics", "graphic novels", "mangas", "manga",
+]
+manga = [
+    "manga", "mangas", "kana", "pika", "kurokawa", "ki-oon", "kaze", "tonkam",
+    "glenat manga", "akata", "doki-doki", "soleil manga", "meian", "noeve",
+]
+biographie = ["biographie", "biographies", "memoires", "autobiographie", "souvenirs", "temoignage"]
+cuisine = ["cuisine", "recettes", "gastronomie", "patisserie", "vins"]

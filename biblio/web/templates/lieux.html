@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Lieux") }}{% endblock %}
+{% block content %}
+<div class="entete-page">
+  <h1>{{ _("Lieux et étagères") }}</h1>
+  {% if non_localises %}<a href="/catalogue?lieu=aucun">{{ _("{n} livre(s) non localisé(s)", n=non_localises) }}</a>{% endif %}
+</div>
+
+{% set maxi = (lieux | map(attribute='etageres') | sum(start=[]) | map(attribute='nb') | max) if lieux else 0 %}
+<div class="lieux">
+  {% for l in lieux %}
+    <section class="carte lieu">
+      <h2>{{ l.nom }} <small class="doux">{{ l.nb }} {{ _("livre") if l.nb == 1 else _("livres") }}</small></h2>
+      {% if l.description %}<p class="doux" style="margin:-.3rem 0 .5rem">{{ l.description }}</p>{% endif %}
+      <div class="etageres">
+        {% for e in l.etageres %}
+          <div class="etagere">
+            <span class="nom">{{ e.nom }}</span>
+            <span class="planche" style="--p: {{ (100 * e.nb / maxi) | round if maxi else 0 }}%"></span>
+            <a class="nb" href="/catalogue?lieu={{ l.id }}&etagere={{ e.id }}">{{ e.nb }}</a>
+            <details class="edition"><summary>⋯</summary>
+              <form method="post" action="/etageres/{{ e.id }}/renommer" class="ligne-form">
+                <input type="text" name="nom" value="{{ e.nom }}" size="10"><button class="petit">{{ _("Renommer") }}</button></form>
+              <form method="post" action="/etageres/{{ e.id }}/supprimer"
+                    onsubmit='return confirm({{ _("Supprimer l’étagère {etagere} ? Ses livres resteront dans {lieu}.", etagere=e.nom, lieu=l.nom) | tojson }})'>
+                <button class="petit danger">{{ _("Supprimer") }}</button></form>
+            </details>
+          </div>
+        {% else %}
+          <p class="doux" style="font-size:.88rem">{{ _("Aucune étagère : les livres sont rangés dans le lieu.") }}</p>
+        {% endfor %}
+      </div>
+      <form method="post" action="/lieux/{{ l.id }}/etagere" class="ligne-form" style="margin-bottom:.8rem">
+        <input type="text" name="nom" placeholder="{{ _('Nouvelle(s) étagère(s), séparées par des virgules') }}" required style="flex:1;min-width:0">
+        <button class="petit">{{ _("Ajouter") }}</button>
+      </form>
+      <div class="actions-lieu">
+        <a class="bouton petit" href="/catalogue?lieu={{ l.id }}">{{ _("Voir les livres") }}</a>
+        <a class="bouton petit" href="/lieux/{{ l.id }}/rangement">{{ _("Ordre de rangement") }}</a>
+        <details class="edition" style="align-self:center"><summary>{{ _("Renommer / supprimer") }}</summary>
+          <form method="post" action="/lieux/{{ l.id }}/renommer" class="ligne-form" style="margin-top:.4rem">
+            <input type="text" name="nom" value="{{ l.nom }}" required size="12">
+            <input type="text" name="description" value="{{ l.description or '' }}" placeholder="{{ _('description') }}" size="14">
+            <button class="petit">{{ _("Enregistrer") }}</button></form>
+          <form method="post" action="/lieux/{{ l.id }}/supprimer" style="margin-top:.4rem"
+                onsubmit='return confirm({{ _("Supprimer {lieu} ? Ses {n} livres deviendront « non localisés ».", lieu=l.nom, n=l.nb) | tojson }})'>
+            <button class="petit danger">{{ _("Supprimer ce lieu") }}</button></form>
+        </details>
+      </div>
+    </section>
+  {% endfor %}
+
+  <section class="carte">
+    <h2>{{ _("Nouveau lieu") }}</h2>
+    <p class="doux" style="font-size:.9rem">{{ _("Une bibliothèque, une pièce, un carton… Vous pourrez ensuite y ajouter des étagères.") }}</p>
+    <form method="post" action="/lieux/ajouter">
+      <div class="champ"><label>{{ _("Nom") }}</label><input type="text" name="nom" placeholder="{{ _('Salon, Chambre, Bureau…') }}" required></div>
+      <div class="champ"><label>{{ _("Description (facultatif)") }}</label><input type="text" name="description" placeholder="{{ _('Grande bibliothèque à gauche de la fenêtre') }}"></div>
+      <button class="principal">{{ _("Créer") }}</button>
+    </form>
+  </section>
+</div>
+
+{% if inventaires %}
+<h2 style="margin-top:2rem">{{ _("Derniers inventaires") }}</h2>
+<table class="table empilee">
+  <thead><tr><th>{{ _("Date") }}</th><th>{{ _("Zone") }}</th><th class="num">{{ _("Scans") }}</th><th>{{ _("État") }}</th></tr></thead>
+  <tbody>{% for i in inventaires %}
+    <tr><td><a href="/inventaire/{{ i.id }}">{{ i.debut[:16] | replace('T', ' ') }}</a></td><td>{{ i.emplacement }}</td>
+      <td class="num">{{ i.nb_scans }}</td><td>{{ _("clôturé") if i.fin else _("en cours") }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% endif %}
+<p class="doux" style="margin-top:1.5rem;font-size:.9rem">{{ _("Pour vérifier une étagère, ouvrez le poste de scan en mode Inventaire.") }} <a href="/scan">{{ _("Scanner") }} →</a></p>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Téléphone") }}{% endblock %}
+{% block content %}
+<div class="entete-page">
+  <div><h1>{{ _("Scanner avec le téléphone") }}</h1>
+    <span class="doux">{{ _("iPhone ou Android, sur le même Wi-Fi que cet ordinateur.") }}</span></div>
+</div>
+
+{% if not actif %}
+<div class="carte" style="max-width:760px">
+  <h2>{{ _("Le mode téléphone n'est pas lancé") }}</h2>
+  <p>{{ _("Le téléphone n'a le droit d'utiliser sa caméra que sur une connexion chiffrée (HTTPS). Relancez la bibliothèque avec :") }}</p>
+  <pre class="commande"><code>{{ lanceur }} serve --phone</code></pre>
+  <p class="doux">{{ _("Au premier lancement, le pare-feu peut demander d'autoriser Python à accepter les connexions entrantes : acceptez (macOS ; sous Windows, cochez « Réseaux privés »). Sous Linux, ouvrez au besoin les ports 8443 et 8080.") }}</p>
+</div>
+{% else %}
+<div class="telephone-grille">
+  <section class="carte qr-carte">
+    <span class="etape">1</span>
+    <h2>{{ _("Première fois : installer le certificat") }}</h2>
+    <div class="qr">{{ qr.installation | safe }}</div>
+    <p>{{ _("Scannez avec l'appareil photo du téléphone, puis suivez les instructions affichées. À faire une seule fois par téléphone.") }}</p>
+    <p class="doux"><code>{{ urls.installation }}</code></p>
+  </section>
+  <section class="carte qr-carte">
+    <span class="etape">2</span>
+    <h2>{{ _("Scanner") }}</h2>
+    <div class="qr">{{ qr.scan | safe }}</div>
+    <p>{{ _("Ouvre le poste de scan avec la caméra. Le téléphone garde l'accès. Pour un vrai plein écran, sans barre de navigateur : Partager › « Sur l'écran d'accueil » (Safari ou Firefox), puis ouvrez l'icône « Bibliothèque ».") }}</p>
+    <p class="doux"><code>{{ urls.scan_court }}</code></p>
+  </section>
+</div>
+
+<div class="carte" style="margin-top:1rem">
+  <h3>{{ _("Sécurité") }}</h3>
+  <p class="doux" style="font-size:.9rem">{{ _("Le QR code « Scanner » contient une clé secrète : un autre appareil du Wi-Fi sans cette clé ne peut ni voir ni modifier la bibliothèque. Si un téléphone ne doit plus y avoir accès :") }}</p>
+  <form method="post" action="/telephone/nouvelle-cle" onsubmit='return confirm({{ _("Changer la clé ? Tous les téléphones devront rescanner le QR code.") | tojson }})'>
+    <button class="danger">{{ _("Changer la clé") }}</button></form>
+  <p class="doux" style="font-size:.85rem;margin-bottom:0">{{ _("Empreinte du certificat (pour vérifier sur le téléphone) :") }}<br>
+    <code style="word-break:break-all">{{ empreinte }}</code></p>
+</div>
+{% endif %}
+{% endblock %}

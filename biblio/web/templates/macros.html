@@ -1,0 +1,23 @@
+{% macro couv(n, grande=False) -%}
+<span class="couv{{ ' grande' if grande }}" data-titre="{{ n.titre or '?' }}">
+  {%- if n.couverture_url -%}
+    <img src="/couverture/{{ n.id }}" alt="" loading="lazy" onerror="couvertureAbsente(this)" onload="couvertureChargee(this)">
+  {%- else -%}
+    <span class="initiales">{{ (n.titre or '?')[:2] | upper }}</span>
+  {%- endif -%}
+</span>
+{%- endmacro %}
+
+{% macro cote(c) -%}
+{%- if c -%}<span class="cote">{{ c }}</span>{%- else -%}<span class="cote vide">{{ _("à classer") }}</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro options_emplacement(lieux, choisi="", vide=None) -%}
+<option value="">{{ vide or _("Non localisé") }}</option>
+{%- for l in lieux %}
+  <option value="{{ l.id }}:" {{ 'selected' if choisi == l.id ~ ':' }}>{{ l.nom }}</option>
+  {%- for e in l.etageres %}
+  <option value="{{ l.id }}:{{ e.id }}" {{ 'selected' if choisi == l.id ~ ':' ~ e.id }}>&nbsp;&nbsp;&nbsp;{{ l.nom }} › {{ e.nom }}</option>
+  {%- endfor %}
+{%- endfor %}
+{%- endmacro %}

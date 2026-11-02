@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Réglages") }}{% endblock %}
+{% block content %}
+<h1>{{ _("Réglages") }}</h1>
+<div class="deux-colonnes">
+  <form method="post" action="/reglages" class="carte">
+    <h2>{{ _("Général") }}</h2>
+    <div class="champ"><label>{{ _("Langue de l'interface") }}</label>
+      <select name="langue">{% for code, nom in LANGUES.items() %}<option value="{{ code }}" {{ 'selected' if code == langue() }}>{{ nom }}</option>{% endfor %}</select>
+      <small>{{ _("Aussi accessible en haut à droite de chaque page (FR · EN). La ligne de commande est toujours en anglais.") }}</small></div>
+    <div class="champ"><label>{{ _("Système de classement affiché par défaut") }}</label>
+      <select name="systeme">{% for s, nom in SYSTEMES.items() %}<option value="{{ s }}" {{ 'selected' if s == systeme }}>{{ _(nom) }}</option>{% endfor %}</select>
+      <small>{{ _("Toutes les cotes sont calculées et gardées : changer de système est instantané.") }}</small></div>
+    <div class="champ"><label>{{ _("Votre nom (propriétaire de vos livres)") }}</label>
+      <input type="text" name="proprietaire" value="{{ proprietaire }}" required>
+      <small>{{ _("Vos livres portent ce nom ; ceux des catalogues d'amis fusionnés portent le leur. Le changer renomme tous vos exemplaires.") }}</small></div>
+    <div class="champ"><label>{{ _("Clé API Google Books (facultative)") }}</label>
+      <input type="password" name="google_api_key" placeholder="{{ _('clé enregistrée — laisser vide pour la garder') if google else 'AIza…' }}" autocomplete="off">
+      <small>{{ _("Ajoute résumés et couvertures quand la BnF et Open Library n'en ont pas. Clé gratuite (1 000 requêtes/jour) sur la console Google Cloud, API « Books ». Sans clé, Google Books n'est pas interrogé.") }}</small>
+      {% if google %}<label style="margin-top:.3rem"><input type="checkbox" name="effacer_google" value="1"> {{ _("Effacer la clé") }}</label>{% endif %}
+    </div>
+    <button class="principal">{{ _("Enregistrer") }}</button>
+  </form>
+
+  <section class="carte">
+    <h2>{{ _("Données") }}</h2>
+    <dl class="infos">
+      <dt>{{ _("Base") }}</dt><dd><code style="word-break:break-all">{{ db_path }}</code></dd>
+      <dt>{{ _("Réponses en cache") }}</dt><dd>{{ _("{n} réponses de catalogues conservées", n=nb_raw) }}</dd>
+    </dl>
+    <p><a class="bouton" href="/export.xlsx">{{ _("Exporter en Excel") }}</a> <a class="bouton" href="/export.csv">CSV</a></p>
+    <hr>
+    <h3>{{ _("Règles de classement") }}</h3>
+    <p class="doux" style="font-size:.9rem">{{ _("Les tables et règles sont dans le dossier rules/ du projet (rayons.toml, clil.toml, dewey.toml…). Après une modification :") }}</p>
+    <form method="post" action="/reglages/reclasser"><button>{{ _("Recalculer toutes les cotes") }}</button></form>
+    <p class="doux" style="font-size:.85rem">{{ _("Aucune requête réseau : tout est relu depuis les réponses stockées.") }}</p>
+  </section>
+
+  <form method="get" action="/partage.db" class="carte">
+    <h2>{{ _("Partager avec un ami") }}</h2>
+    <p class="doux" style="font-size:.9rem">{{ _("Télécharge un fichier avec vos livres (fiches et cotes), à envoyer à un ami qui utilise aussi cette bibliothèque. Il l'ajoutera à la sienne avec : biblio merge fichier.db") }}</p>
+    <div class="champ"><label>{{ _("Lieux à partager") }}</label>
+      <select name="lieu" multiple size="{{ [lieux|length, 6]|min if lieux else 1 }}">
+        {% for l in lieux %}<option value="{{ l.id }}">{{ l.nom }} ({{ l.nb }})</option>{% endfor %}
+      </select>
+      <small>{{ _("Aucun lieu choisi : tous vos livres.") }}</small></div>
+    <label class="ligne-form" style="margin-bottom:.8rem"><input type="checkbox" name="masquer" value="1">
+      {{ _("Masquer les lieux (l'ami saura que vous avez le livre, pas où il est rangé)") }}</label>
+    <label class="ligne-form" style="margin-bottom:.8rem"><input type="checkbox" name="prets" value="1">
+      {{ _("Inclure mes prêts, avec le nom des emprunteurs (ils relieront vos amis dans le réseau des prêts)") }}</label>
+    <p class="doux" style="font-size:.85rem">{{ _("Jamais partagés : vos notes, vos clés et réglages.") }}</p>
+    <button class="principal">{{ _("Télécharger le fichier de partage") }}</button>
+  </form>
+</div>
+{% endblock %}
