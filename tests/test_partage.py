@@ -463,7 +463,7 @@ def test_erreur_en_cours_de_synchro_ne_laisse_rien(jd, portable, tmp_path, monke
 
 def test_fichier_refuse(jd, tmp_path):
     autre = tmp_path / "texte.db"
-    autre.write_text("pas une base")
+    autre.write_text("pas une base", encoding="utf-8")
     with pytest.raises(Erreur):
         partage.importer_ami(jd, autre)
     with pytest.raises(Erreur):
@@ -482,10 +482,10 @@ def test_partage_refuse_d_ecraser_un_autre_fichier(jd, victor, tmp_path):
         partage.exporter_partage(jd, tmp_path / "victor.db")
     assert services.notice(victor, VARGAS)
     autre = tmp_path / "rapport.txt"
-    autre.write_text("important")
+    autre.write_text("important", encoding="utf-8")
     with pytest.raises(Erreur):
         partage.exporter_partage(jd, autre)
-    assert autre.read_text() == "important"
+    assert autre.read_text(encoding="utf-8") == "important"
 
 
 def test_partage_remplace_un_ancien_fichier_de_partage(jd, tmp_path):

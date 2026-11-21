@@ -28,6 +28,15 @@ def test_douchette_en_qwerty_sur_azerty():
     assert normalize("çè_éàèà\"-ààé'") == "9782070360024"   # PC
 
 
+@pytest.mark.parametrize("frappe", [
+    "Çè!éàèà\"§ààé'",           # majuscule automatique en début de champ
+    "çè!éàèà”§ààé’",            # guillemet et apostrophe typographiques
+    "Çè!éàèà« §ààé’",      # guillemet français et son espace insécable
+])
+def test_douchette_retouchee_par_le_telephone(frappe):
+    assert normalize(frappe) == "9782070360024"
+
+
 @pytest.mark.parametrize("code, message", [
     ("9782070360025", "clé de contrôle"),
     ("1234567890128", "produit"),

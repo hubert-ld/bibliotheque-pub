@@ -13,10 +13,12 @@
   const livres = (n) => (n > 1 ? tr("{n} livres", { n: nombre.format(n) }) : tr("{n} livre", { n: nombre.format(n) }));
   const prets = (n) => (n > 1 ? tr("{n} prêts", { n: nombre.format(n) }) : tr("{n} prêt", { n: nombre.format(n) }));
   const exemplaires = (n) => tr("{n} exemplaires", { n: nombre.format(n) });
+  const scans = (n) => (n > 1 ? tr("{n} scans", { n: nombre.format(n) }) : tr("{n} scan", { n: nombre.format(n) }));
   const UNITES = {
     livres: { compte: livres, un: () => tr("livre"), plusieurs: () => tr("livres") },
     prets: { compte: prets, un: () => tr("prêt"), plusieurs: () => tr("prêts") },
     exemplaires: { compte: exemplaires, un: () => tr("exemplaire"), plusieurs: () => tr("exemplaires") },
+    scans: { compte: scans, un: () => tr("scan"), plusieurs: () => tr("scans") },
   };
   function el(nom, attrs = {}, parent) {
     const e = document.createElementNS(NS, nom);

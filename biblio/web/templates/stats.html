@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ _("Statistiques") }}</h1>
 <div class="chiffres">
-  <div class="carte"><b>{{ s.exemplaires }}</b><span>{{ _("livres") }}</span></div>
+  <div class="carte"><b>{{ s.exemplaires }}</b><span>{{ _("documents") }}</span></div>
   <div class="carte"><b>{{ s.notices }}</b><span>{{ _("titres différents") }}</span></div>
   <div class="carte"><b>{{ s.auteurs }}</b><span>{{ _("auteurs") }}</span></div>
   <div class="carte"><b>{{ '{:,}'.format(s.pages).replace(',', ' ' if langue() == 'fr' else ',') }}</b><span>{{ _("pages") }}</span></div>
@@ -17,12 +17,13 @@
 {% set donnees = {
   "activite": s.activite, "par_classe": s.par_classe, "par_lieu": s.par_lieu, "par_auteur": s.par_auteur,
   "par_editeur": s.par_editeur, "par_decennie": s.par_decennie, "par_langue": s.par_langue,
-  "par_forme": s.par_forme, "statuts": statuts | sort(attribute="nb", reverse=True),
+  "par_support": s.par_support, "par_forme": s.par_forme, "statuts": statuts | sort(attribute="nb", reverse=True),
   "reseau_noeuds": s.reseau_noeuds, "reseau_aretes": s.reseau_aretes, "prets_en_cours": s.prets_en_cours, "prets_par_emprunteur": s.prets_par_emprunteur,
   "prets_par_mois": s.prets_par_mois, "emprunteurs": s.emprunteurs, "plus_pretes": s.plus_pretes,
   "par_public": s.par_public, "par_pages": s.par_pages, "par_collection": s.par_collection,
   "par_etagere": s.par_etagere, "completude": s.completude, "plusieurs_exemplaires": s.plusieurs_exemplaires,
-  "par_lecture": s.par_lecture, "lus_par_an": s.lus_par_an, "par_etoiles": s.par_etoiles, "par_etat": s.par_etat} %}
+  "par_lecture": s.par_lecture, "lus_par_an": s.lus_par_an, "par_etoiles": s.par_etoiles, "par_etat": s.par_etat,
+  "par_introducteur": s.par_introducteur, "par_scanneur": s.par_scanneur, "scans_par_mois": s.scans_par_mois} %}
 
 <div class="stats-root">
   <section class="carte graphique activite">
@@ -99,6 +100,7 @@
     {{ carte("par_editeur", _("Éditeurs"), "liste,camembert", "/catalogue?q=") }}
     {{ carte("par_decennie", _("Par décennie d'édition"), "histogramme,liste") }}
     {{ carte("par_langue", _("Langue d'origine"), "camembert,liste") }}
+    {{ carte("par_support", _("Supports"), "camembert,liste") }}
     {{ carte("par_forme", _("Genres littéraires"), "camembert,liste") }}
     {{ carte("par_public", _("Public"), "camembert,liste") }}
     {{ carte("par_pages", _("Longueur des livres"), "colonnes,liste", note=_("Par tranches de 100 pages.")) }}
@@ -123,11 +125,28 @@
     <section class="carte graphique">
       <div class="entete-graphique"><h2>{{ _("Valeur de la collection") }}</h2></div>
       <dl class="records">
-        <dt>{{ _("Valeur estimée") }}</dt><dd>{{ '{:,.2f}'.format(s.valeur_totale).replace(',', ' ').replace('.', ',') }} <span class="doux">{{ _("{n} exemplaire(s) renseigné(s)", n=s.valeur_renseignee) }}</span></dd>
-        <dt>{{ _("Prix d'achat") }}</dt><dd>{{ '{:,.2f}'.format(s.prix_total).replace(',', ' ').replace('.', ',') }} <span class="doux">{{ _("{n} exemplaire(s) renseigné(s)", n=s.prix_renseigne) }}</span></dd>
+        <dt>{{ _("Valeur estimée") }}</dt><dd>{{ '{:,.2f}'.format(s.valeur_totale).replace(',', ' ').replace('.', ',') }} <span class="doux">{{ pluriel(s.valeur_renseignee, "{n} exemplaire renseigné", "{n} exemplaires renseignés") }}</span></dd>
+        <dt>{{ _("Prix d'achat") }}</dt><dd>{{ '{:,.2f}'.format(s.prix_total).replace(',', ' ').replace('.', ',') }} <span class="doux">{{ pluriel(s.prix_renseigne, "{n} exemplaire renseigné", "{n} exemplaires renseignés") }}</span></dd>
       </dl>
     </section>
   </div>
+
+  {% if s.bibliothecaires %}
+  <h2 class="titre-section">{{ _("Bibliothécaires") }}</h2>
+  <table class="table">
+    <thead><tr><th>{{ _("Bibliothécaire") }}</th><th class="num">{{ _("Livres introduits") }}</th><th class="num">{{ _("Scans") }}</th>
+      <th class="num">{{ _("Dernier scan") }}</th></tr></thead>
+    <tbody>{% for b in s.bibliothecaires %}
+      <tr><td>{{ b.nom }}</td><td class="num">{{ b.introduits }}</td><td class="num">{{ b.scans }}</td>
+        <td class="num">{{ b.dernier_scan or "—" }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  <div class="deux-colonnes">
+    {{ carte("par_introducteur", _("Livres introduits"), "liste,camembert", vide=_("Pas encore de données.")) }}
+    {{ carte("par_scanneur", _("Scans"), "liste,camembert", unite="scans", vide=_("Pas encore de données.")) }}
+    {{ carte("scans_par_mois", _("Scans par mois"), "colonnes,liste", unite="scans", vide=_("Pas encore de données.")) }}
+  </div>
+  {% endif %}
 
   {% if s.amis %}
   <h2 class="titre-section">{{ _("Chez les amis") }}</h2>
@@ -144,4 +163,4 @@
 <div class="infobulle" id="infobulle" role="tooltip" hidden></div>
 <script id="stats-donnees" type="application/json">{{ donnees | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="/static/stats.js?v={{ version }}"></script>{% endblock %}
+{% block scripts %}<script src="/static/stats.js?v={{ empreinte_statique }}"></script>{% endblock %}

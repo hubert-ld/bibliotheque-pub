@@ -73,12 +73,9 @@ secrets.*
 credentials*
 .netrc
 
-# Réglages locaux du déploiement (adresse du Pi, chemins) : seul le modèle est publié
-# Tout deploy pour l'instant est privé
-deploy/
-deploy/pi.conf
+# Réglages locaux du déploiement (adresse du serveur, chemins) : seul le modèle est publié
 deploy/*.conf
-!deploy/pi.conf.example
+!deploy/serveur.conf.example
 biblio.env
 .ssh/
 

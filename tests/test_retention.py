@@ -1,6 +1,7 @@
-"""L'archive des copies sur le disque externe du Raspberry Pi (deploy/retention.py)."""
+"""L'archive des copies sur le disque externe du serveur (deploy/retention.py)."""
 
 import importlib.util
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -28,7 +29,7 @@ def nuit(sd, disque, d: datetime, garder_sd: int = 3, **options):
     (sd / nom(d)).write_bytes(f"{d}".encode())
     for ancienne in sorted(sd.glob("biblio-*.db"))[:-garder_sd]:
         ancienne.unlink()
-    args = ["--sd", str(sd), "--disque", str(disque)]
+    args = ["--copies", str(sd), "--archive", str(disque)]
     for cle, val in options.items():
         args += [f"--{cle}", str(val)]
     retention.main(args)
@@ -72,7 +73,8 @@ def test_copie_intacte_et_privee(dossiers):
     nuit(sd, disque, d)
     copie = disque / nom(d)
     assert copie.read_bytes() == (sd / nom(d)).read_bytes()
-    assert oct(copie.stat().st_mode)[-3:] == "600"
+    if sys.platform != "win32":                                    # Windows ignore chmod 600
+        assert oct(copie.stat().st_mode)[-3:] == "600"
     assert not list(disque.glob("*.tmp"))
 
 
@@ -81,12 +83,13 @@ def test_rien_ne_vieillit_sans_nouvelles_copies(dossiers):
     debut = datetime(2026, 11, 1, 4, 20)
     for i in range(7):
         nuit(sd, disque, debut + timedelta(days=i))
-    retention.main(["--sd", str(sd), "--disque", str(disque)])           # des mois plus tard, sans copie
+    retention.main(["--copies", str(sd), "--archive", str(disque)])           # des mois plus tard, sans copie
     assert len(dates(disque)) == 7
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="/mnt et les disques montés : seulement sur un serveur Linux")
 def test_disque_non_monte_sous_mnt(tmp_path):
-    """/mnt/disque/… sur la carte SD (disque pas monté) : surtout ne rien y créer."""
+    """/mnt/disque/… sur le disque système (disque pas monté) : surtout ne rien y créer."""
     assert retention.disponible(tmp_path / "ailleurs")                    # hors /mnt : créé
     assert (tmp_path / "ailleurs").is_dir()
     assert not retention.disponible(Path("/mnt/disque-qui-n-existe-pas/backups/biblio"))
@@ -110,5 +113,5 @@ def test_couvertures_et_simulation(dossiers, tmp_path):
     assert (disque / "covers" / "978.jpg").read_bytes() == b"img"
     (sd / nom(datetime(2026, 11, 2, 4, 20))).write_bytes(b"x")
     avant = sorted(p.name for p in disque.iterdir())
-    retention.main(["--sd", str(sd), "--disque", str(disque), "--simulation"])
+    retention.main(["--copies", str(sd), "--archive", str(disque), "--simulation"])
     assert sorted(p.name for p in disque.iterdir()) == avant

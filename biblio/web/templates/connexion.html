@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="{{ langue() }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ _("Connexion") }} · {{ _("Bibliothèque") }}</title>
+  <script>/* Thème choisi sur cet appareil, posé avant l'affichage (sinon : celui du système) */
+  try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css?v={{ empreinte_statique }}">
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="apple-touch-icon" href="/static/icone-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="{{ _('Bibliothèque') }}">
+  <meta name="theme-color" content="#7a2a1c">
+</head>
+<body>
+<main class="page-connexion">
+  <form method="post" action="/connexion" class="carte connexion">
+    <h1>{{ _("Bibliothèque") }}</h1>
+    {% if err %}<div class="flash err" role="alert">{{ err }}</div>{% endif %}
+    <input type="hidden" name="suite" value="{{ suite }}">
+    <div class="champ"><label for="identifiant">{{ _("Identifiant") }}</label>
+      <input id="identifiant" name="identifiant" value="{{ identifiant }}" autocomplete="username" autocapitalize="none"
+             autocorrect="off" spellcheck="false" required autofocus></div>
+    <div class="champ"><label for="code">{{ _("Code") }}</label>
+      <input id="code" name="code" type="password" autocomplete="current-password" required></div>
+    <label class="case"><input type="checkbox" name="souvenir" value="1" checked>
+      <span>{{ _("Se souvenir de cet appareil") }}</span></label>
+    <button class="principal" style="width:100%">{{ _("Se connecter") }}</button>
+    <p class="doux" style="font-size:.85rem;margin:1rem 0 0">{{ _("Cet appareil gardera l'accès : vous n'aurez plus à taper votre code, jusqu'à ce qu'on vous le coupe.") }}</p>
+    <p class="doux" style="font-size:.85rem;margin:.5rem 0 0">{{ _("Pas de compte ? Demandez un identifiant et un code à la personne qui gère la bibliothèque, ou scannez le QR code « Scanner » de sa page Téléphone.") }}</p>
+  </form>
+</main>
+</body>
+</html>

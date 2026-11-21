@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:version>1.1</zs:version><zs:numberOfRecords>20</zs:numberOfRecords><zs:records><zs:record><zs:recordSchema>marcxml</zs:recordSchema><zs:recordPacking>xml</zs:recordPacking><zs:recordData><record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>     cam a22      cb4500</leader>
+  <controlfield tag="001">881466166</controlfield>
+  <controlfield tag="003">DE-627</controlfield>
+  <controlfield tag="005">20260411013901.0</controlfield>
+  <controlfield tag="007">tu</controlfield>
+  <controlfield tag="008">170307s2015    gw |||||      00| ||ger c</controlfield>
+  <datafield tag="020" ind1=" " ind2=" ">
+    <subfield code="a">9783518368459</subfield>
+    <subfield code="9">978-3-518-36845-9</subfield>
+  </datafield>
+  <datafield tag="035" ind1=" " ind2=" ">
+    <subfield code="a">(DE-627)881466166</subfield>
+  </datafield>
+  <datafield tag="035" ind1=" " ind2=" ">
+    <subfield code="a">(DE-599)GBV881466166</subfield>
+  </datafield>
+  <datafield tag="040" ind1=" " ind2=" ">
+    <subfield code="a">DE-627</subfield>
+    <subfield code="b">ger</subfield>
+    <subfield code="c">DE-627</subfield>
+    <subfield code="e">rda</subfield>
+  </datafield>
+  <datafield tag="041" ind1=" " ind2=" ">
+    <subfield code="a">ger</subfield>
+  </datafield>
+  <datafield tag="044" ind1=" " ind2=" ">
+    <subfield code="c">XA-DE</subfield>
+  </datafield>
+  <datafield tag="100" ind1="1" ind2=" ">
+    <subfield code="a">Benjamin, Walter</subfield>
+    <subfield code="d">1892-1940</subfield>
+    <subfield code="e">VerfasserIn</subfield>
+    <subfield code="0">(DE-588)118509039</subfield>
+    <subfield code="0">(DE-627)133801799</subfield>
+    <subfield code="0">(DE-576)160242886</subfield>
+    <subfield code="4">aut</subfield>
+  </datafield>
+  <datafield tag="245" ind1="1" ind2="0">
+    <subfield code="a">Illuminationen</subfield>
+    <subfield code="c">Walter Benjamin</subfield>
+  </datafield>
+  <datafield tag="250" ind1=" " ind2=" ">
+    <subfield code="a">17. Auflage</subfield>
+  </datafield>
+  <datafield tag="264" ind1=" " ind2="1">
+    <subfield code="a">Frankfurt a.M.</subfield>
+    <subfield code="b">Suhrkamp</subfield>
+    <subfield code="c">2015</subfield>
+  </datafield>
+  <datafield tag="300" ind1=" " ind2=" ">
+    <subfield code="a">416 Seiten</subfield>
+    <subfield code="c">21 cm</subfield>
+  </datafield>
+  <datafield tag="336" ind1=" " ind2=" ">
+    <subfield code="a">Text</subfield>
+    <subfield code="b">txt</subfield>
+    <subfield code="2">rdacontent</subfield>
+  </datafield>
+  <datafield tag="337" ind1=" " ind2=" ">
+    <subfield code="a">ohne Hilfsmittel zu benutzen</subfield>
+    <subfield code="b">n</subfield>
+    <subfield code="2">rdamedia</subfield>
+  </datafield>
+  <datafield tag="338" ind1=" " ind2=" ">
+    <subfield code="a">Band</subfield>
+    <subfield code="b">nc</subfield>
+    <subfield code="2">rdacarrier</subfield>
+  </datafield>
+  <datafield tag="490" ind1="1" ind2=" ">
+    <subfield code="a">Ausgewählte Schriften / Walter Benjamin</subfield>
+    <subfield code="v">1</subfield>
+  </datafield>
+  <datafield tag="490" ind1="0" ind2=" ">
+    <subfield code="a">Suhrkamp Taschenbuch</subfield>
+    <subfield code="v">345</subfield>
+  </datafield>
+  <datafield tag="500" ind1=" " ind2=" ">
+    <subfield code="a">Hier auch später erschienene, unveränderte Nachdrucke (auch als Auflagen bezeichnet)</subfield>
+  </datafield>
+  <datafield tag="583" ind1="1" ind2=" ">
+    <subfield code="a">Archivierung prüfen</subfield>
+    <subfield code="c">20260411</subfield>
+    <subfield code="f">DE-4165</subfield>
+    <subfield code="z">1</subfield>
+    <subfield code="2">pdager</subfield>
+  </datafield>
+  <datafield tag="710" ind1="2" ind2=" ">
+    <subfield code="a">Suhrkamp Verlag</subfield>
+    <subfield code="e">Verlag</subfield>
+    <subfield code="0">(DE-588)300755-8</subfield>
+    <subfield code="0">(DE-627)100688012</subfield>
+    <subfield code="0">(DE-576)191008214</subfield>
+    <subfield code="4">pbl</subfield>
+  </datafield>
+  <datafield tag="800" ind1="1" ind2=" ">
+    <subfield code="a">Benjamin, Walter</subfield>
+    <subfield code="d">1892-1940</subfield>
+    <subfield code="t">Ausgewählte Schriften.</subfield>
+    <subfield code="v">1</subfield>
+    <subfield code="9">1.2015</subfield>
+    <subfield code="w">(DE-627)028378342</subfield>
+    <subfield code="w">(DE-576)9028378340</subfield>
+    <subfield code="7">am</subfield>
+  </datafield>
+  <datafield tag="924" ind1="0" ind2=" ">
+    <subfield code="a">1669380483</subfield>
+    <subfield code="b">DE-547</subfield>
+    <subfield code="9">547</subfield>
+    <subfield code="c">GBV</subfield>
+    <subfield code="d">c</subfield>
+    <subfield code="g">GM 2376 I29.2015</subfield>
+    <subfield code="h">LS</subfield>
+  </datafield>
+  <datafield tag="924" ind1="0" ind2=" ">
+    <subfield code="a">1670080994</subfield>
+    <subfield code="b">DE-Luen4</subfield>
+    <subfield code="9">Luen 4</subfield>
+    <subfield code="c">GBV</subfield>
+    <subfield code="d">c</subfield>
+    <subfield code="g">17-10646</subfield>
+    <subfield code="h">CAM</subfield>
+  </datafield>
+  <datafield tag="951" ind1=" " ind2=" ">
+    <subfield code="a">MV</subfield>
+  </datafield>
+</record></zs:recordData><zs:recordPosition>1</zs:recordPosition></zs:record></zs:records><zs:echoedSearchRetrieveRequest><zs:version>1.1</zs:version><zs:query>pica.isb=9783518368459</zs:query><zs:maximumRecords>1</zs:maximumRecords><zs:recordPacking>xml</zs:recordPacking><zs:recordSchema>marcxml</zs:recordSchema></zs:echoedSearchRetrieveRequest></zs:searchRetrieveResponse>

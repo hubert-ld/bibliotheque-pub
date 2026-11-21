@@ -1,7 +1,7 @@
 """Copies de sécurité de la base : un seul fichier cohérent, même serveur en marche.
 
-Une base en cours d'utilisation vit dans trois fichiers (.db, -wal, -shm), que OneDrive
-copie chacun à son rythme. Ces copies-ci sont faites par SQLite et tiennent en un fichier :
+Une base en cours d'utilisation vit dans trois fichiers (.db, -wal, -shm), qu'un service de
+synchronisation copierait chacun à son rythme. Ces copies-ci sont faites par SQLite et tiennent en un fichier :
 ce sont elles qu'il faut restaurer en cas de problème.
 """
 

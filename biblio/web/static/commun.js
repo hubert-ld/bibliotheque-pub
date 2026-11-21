@@ -32,8 +32,16 @@ function tr(texte, valeurs) {
   appliquer(lire());
 })();
 
-// Navigation qui défile sur téléphone : la page en cours reste en vue.
-document.querySelector(".topbar nav a.actif")?.scrollIntoView({ inline: "center", block: "nearest" });
+// Menu latéral du téléphone.
+(function () {
+  const menu = document.getElementById("menu-lateral");
+  if (!menu) return;
+  document.getElementById("ouvrir-menu").addEventListener("click", () => menu.showModal());
+  document.getElementById("fermer-menu").addEventListener("click", () => menu.close());
+  menu.addEventListener("click", (ev) => { if (ev.target === menu) menu.close(); });   // un toucher sur le fond
+  const petit = window.matchMedia("(max-width: 560px)");
+  petit.addEventListener?.("change", () => { if (!petit.matches && menu.open) menu.close(); });
+})();
 
 // Indicateur « en recherche » de la barre du haut, mis à jour toutes les 3 s.
 (function () {
@@ -46,6 +54,12 @@ document.querySelector(".topbar nav a.actif")?.scrollIntoView({ inline: "center"
       const d = await r.json();
       nb.textContent = d.en_attente;
       zone.classList.toggle("vide", !d.en_attente);
+      const pastille = document.getElementById("menu-pastille");
+      if (pastille) {
+        const total = Number(pastille.dataset.prets) + d.en_attente;
+        pastille.textContent = total;
+        pastille.hidden = !total;
+      }
     } catch (e) { /* serveur arrêté : on réessaiera */ }
   }
   setInterval(maj, 3000);

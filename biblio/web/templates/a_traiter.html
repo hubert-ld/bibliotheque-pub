@@ -25,7 +25,7 @@
       {% for n in data[cle][:200] %}
         <tr><td style="width:11em"><code>{{ n.reference }}</code></td>
           <td class="large"><a href="/livre/{{ n.id }}">{{ n.titre or _('Compléter la fiche') }}</a>
-            <span class="doux">{{ n.auteurs | auteurs }}</span></td>
+            <span class="doux">{{ n.auteurs | join(', ') }}</span></td>
           <td class="doux" style="font-size:.85rem">{{ n.cree_le[:10] }}</td></tr>
       {% endfor %}
     </tbody></table>

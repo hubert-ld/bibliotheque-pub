@@ -34,8 +34,8 @@ def test_rotation_ne_touche_que_les_copies_de_cette_base(tmp_path):
     conn = _base(tmp_path)
     dossier = tmp_path / "ailleurs"
     dossier.mkdir()
-    (dossier / "victor-2020-01-01-000000.db").write_text("copie de la base de Victor")
-    (dossier / "notes.txt").write_text("autre")
+    (dossier / "victor-2020-01-01-000000.db").write_text("copie de la base de Victor", encoding="utf-8")
+    (dossier / "notes.txt").write_text("autre", encoding="utf-8")
     copies = [sauvegarde.creer(conn, dossier=dossier, garder=3) for _ in range(5)]
     restantes = sorted(p.name for p in dossier.glob("biblio-*.db"))
     assert len(restantes) == 3 and restantes == sorted(p.name for p in copies[-3:])

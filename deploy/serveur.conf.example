@@ -1,0 +1,27 @@
+# Modèle des réglages du déploiement sur un serveur Linux (Debian, Ubuntu… avec systemd).
+# À copier : cp deploy/serveur.conf.example deploy/serveur.conf
+# deploy/serveur.conf est lu par tous les scripts de ce dossier et reste hors du dépôt (.gitignore).
+# Après une modification : ./deploy/deployer.sh
+
+# Comment joindre le serveur en SSH (comme dans ~/.ssh/config : alias, utilisateur@mon-serveur, utilisateur@192.168.1.x)
+SERVEUR_SSH=utilisateur@mon-serveur
+
+# Le nom du serveur sur le réseau : celui de l'adresse à ouvrir (https://mon-serveur:8443) et du certificat.
+# Tous les réseaux ne résolvent pas les noms en .local : mettez celui qui répond chez vous (ping mon-serveur).
+NOM_RESEAU=mon-serveur
+
+# Base vivante, couvertures, certificats. Sur un système de fichiers Linux (ext4…), jamais dans un partage
+# réseau (Samba, NFS) ni sur un disque exFAT/NTFS : l'installeur le refuse.
+DATA_DIR=/var/lib/biblio
+
+# Archive des copies quotidiennes, de préférence sur un autre disque (ex. /mnt/disque/backups/biblio),
+# hors de tout partage réseau : elles contiennent vos notes, vos prêts et la clé du téléphone.
+BACKUP_DIR=/var/backups/biblio
+
+# Ports. L'installeur vérifie qu'ils sont libres ; changez-les si un autre service les occupe.
+PORT_WEB=8000             # interface « ordinateur » : 127.0.0.1 seulement, via un tunnel SSH
+PORT_HTTPS=8443           # téléphones et ordinateurs du réseau (HTTPS, protégé par une clé ou un compte)
+PORT_INSTALLATION=8080    # page d'installation du certificat (ne sert que le certificat)
+
+# Port local, sur votre ordinateur, pour le tunnel SSH (8000 reste libre pour une bibliothèque lancée en local)
+PORT_TUNNEL=8100

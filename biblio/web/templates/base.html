@@ -7,7 +7,7 @@
   <script>/* Thème choisi sur cet appareil, posé avant l'affichage (sinon : celui du système) */
   try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v={{ version }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ empreinte_statique }}">
   {# Appli d'écran d'accueil : sans barres de navigateur, donc en plein écran sur iPhone #}
   <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="/static/icone-180.png">
@@ -24,28 +24,23 @@
     <span>{{ _("Bibliothèque") }}</span>
   </a>
   <nav>
-    {% set liens = [("/scan", _("Scanner")), ("/catalogue", _("Catalogue")), ("/lieux", _("Lieux")), ("/a-traiter", _("À traiter")), ("/prets", _("Prêts")), ("/stats", _("Statistiques")), ("/telephone", _("Téléphone")), ("/reglages", _("Réglages"))] %}
-    {% for url, nom in liens if admin is not defined or admin or url not in ('/telephone', '/reglages') %}
-      <a href="{{ url }}" class="{{ 'actif' if chemin.startswith(url) else '' }}">{{ nom }}
+    {% set liens = [("/scan", _("Scanner"), "consulter"), ("/catalogue", _("Catalogue"), "consulter"), ("/lieux", _("Lieux"), "consulter"), ("/a-traiter", _("À traiter"), "scanner"), ("/prets", _("Prêts"), "personnel"), ("/stats", _("Statistiques"), "personnel"), ("/telephone", _("Téléphone"), "admin"), ("/reglages", _("Réglages"), "admin"), ("/admin", _("Administration"), "admin")] %}
+    {# Sur téléphone, seules les quatre premières pages restent dans la barre : le reste passe dans le menu latéral #}
+    {% for url, nom, droit in liens if peut(droit) %}
+      <a href="{{ url }}" class="{{ 'actif' if chemin.startswith(url) else '' }} {{ 'masquer-telephone' if url not in ('/scan', '/catalogue', '/lieux', '/a-traiter') }}">{{ nom }}
         {%- if url == '/a-traiter' and nb_a_traiter %} <span class="pastille">{{ nb_a_traiter }}</span>{% endif -%}
         {%- if url == '/prets' and nb_prets %} <span class="pastille douce">{{ nb_prets }}</span>{% endif -%}
       </a>
     {% endfor %}
   </nav>
   {% set suite = chemin ~ ('?' ~ request.url.query if request.url.query else '') %}
-  <div class="topbar-droite">
-    <span id="file-attente" class="file-attente {{ '' if en_attente else 'vide' }}" title="{{ _('Livres en cours de description') }}">
-      <span class="point"></span><span id="file-nb">{{ en_attente }}</span> {{ _("en recherche") }}
-    </span>
-    {% if admin is not defined or admin %}{# réglages communs à tous les appareils : pas pour les téléphones #}
-    <form method="post" action="/systeme" class="choix-systeme">
-      <input type="hidden" name="suite" value="{{ suite }}">
-      <label for="systeme-global">{{ _("Classement") }}</label>
-      <select id="systeme-global" name="systeme" onchange="this.form.submit()">
-        {% for s, nom in SYSTEMES.items() %}<option value="{{ s }}" {{ 'selected' if s == systeme }}>{{ _(nom) }}</option>{% endfor %}
-      </select>
-    </form>
-    {% endif %}
+  {% set pages_menu = [("/prets", _("Prêts"), "personnel"), ("/stats", _("Statistiques"), "personnel"), ("/reglages", _("Réglages"), "admin"), ("/admin", _("Administration"), "admin"), ("/compte", _("Mon compte"), "consulter")] %}
+  {% set dans_menu = pages_menu | map("first") | select("in", [chemin]) | list or chemin.startswith("/admin") %}
+  <button type="button" class="ouvrir-menu {{ 'actif' if dans_menu }}" id="ouvrir-menu" aria-haspopup="dialog" aria-label="{{ _('Menu') }}" title="{{ _('Menu') }}">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    <span class="pastille douce" id="menu-pastille" data-prets="{{ nb_prets or 0 }}" {{ 'hidden' if not ((nb_prets or 0) + (en_attente or 0)) }}>{{ (nb_prets or 0) + (en_attente or 0) }}</span>
+  </button>
+  {% set bloc_theme %}
     <div class="choix-theme" role="group" aria-label="{{ _('Thème') }}">
       <button type="button" data-theme-choix="auto" title="{{ _("Thème automatique : celui de l'appareil") }}" aria-label="{{ _('Automatique') }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" class="plein"/></svg></button>
@@ -54,7 +49,9 @@
       <button type="button" data-theme-choix="dark" title="{{ _('Thème sombre') }}" aria-label="{{ _('Sombre') }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></button>
     </div>
-    {% if admin is not defined or admin %}
+  {% endset %}
+  {% set bloc_langue %}
+    {% if admin %}
     <form method="post" action="/langue" class="choix-langue" aria-label="{{ _('Langue') }}">
       <input type="hidden" name="suite" value="{{ suite }}">
       {% for code in LANGUES %}
@@ -63,8 +60,31 @@
       {% endfor %}
     </form>
     {% endif %}
+  {% endset %}
+  <div class="topbar-droite">
+    <span id="file-attente" class="file-attente {{ '' if en_attente else 'vide' }}" title="{{ _('Livres en cours de description') }}">
+      <span class="point"></span><span id="file-nb">{{ en_attente }}</span> {{ _("en recherche") }}
+    </span>
+    {{ bloc_theme }}
+    {{ bloc_langue }}
+    {% if compte %}<a class="mon-compte" href="/compte" title="{{ nom_role }}">{{ compte.nom or compte.identifiant }}</a>{% endif %}
   </div>
 </header>
+{# Menu latéral du téléphone : les pages qui ne tiennent pas dans la barre, le thème et la langue #}
+<dialog class="menu-lateral" id="menu-lateral" aria-label="{{ _('Menu') }}">
+  <div class="entete-menu">
+    <b>{{ _("Bibliothèque") }}</b>
+    <button type="button" class="fermer-filtres" id="fermer-menu" aria-label="{{ _('Fermer') }}" title="{{ _('Fermer') }}">✕</button>
+  </div>
+  <nav>
+    {% for url, nom, droit in pages_menu if peut(droit) %}
+      <a href="{{ url }}" class="{{ 'actif' if chemin.startswith(url) else '' }}"><span>{{ (compte.nom or compte.identifiant) if url == '/compte' and compte else nom }}</span>
+        {%- if url == '/prets' and nb_prets %}<span class="pastille douce">{{ nb_prets }}</span>{% endif -%}
+      </a>
+    {% endfor %}
+  </nav>
+  <div class="pied-menu">{{ bloc_theme }}{{ bloc_langue }}</div>
+</dialog>
 <main class="{% block main_class %}{% endblock %}">
   {% if code_modifie %}<div class="flash err">{{ _("Le programme a été mis à jour depuis le lancement du serveur : redémarrez-le (Ctrl+C dans son terminal, puis relancez « biblio serve ») pour que tout fonctionne.") }}</div>{% endif %}
   {% if msg %}<div class="flash ok">{{ msg }}</div>{% endif %}
@@ -72,7 +92,7 @@
   {% block content %}{% endblock %}
 </main>
 <script>window.I18N = {{ textes_js | tojson }};</script>
-<script src="/static/commun.js?v={{ version }}"></script>
+<script src="/static/commun.js?v={{ empreinte_statique }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

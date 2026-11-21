@@ -27,6 +27,10 @@ Ce document décrit tout le logiciel en détail. Pour démarrer vite, le [README
 19. [Données et sauvegardes](#19-données-et-sauvegardes)
 20. [Dépannage](#20-dépannage)
 21. [Pour le développement](#21-pour-le-développement)
+22. [Disques et films](#22-disques-et-films)
+23. [Comptes, rôles et connexion](#23-comptes-rôles-et-connexion)
+24. [Page d'administration](#24-page-dadministration)
+25. [Sécurité](#25-sécurité)
 
 ---
 
@@ -47,6 +51,7 @@ Deux façons de l'utiliser :
 | **Exemplaire** | Un livre physique. Deux exemplaires du même livre partagent la même notice. |
 | **Lieu** | Une bibliothèque, une pièce, un carton (« Salon »). |
 | **Étagère** | Une subdivision facultative d'un lieu (« Étagère 2 »). |
+| **Rangée** | Une subdivision facultative d'une étagère (« Devant », « Derrière », « R2 »). |
 | **Cote** | L'étiquette de rangement, par exemple `843 CAM`. |
 | **Propriétaire** | La personne à qui appartient un exemplaire : vous ou un ami. |
 
@@ -58,7 +63,7 @@ Dans ce document, `biblio …` désigne le lanceur de votre système : `./biblio
 
 Le logiciel a besoin de **uv**, le gestionnaire Python d'Astral. uv installe lui-même Python (3.12 ou plus) et les dépendances au premier lancement.
 
-> Le logiciel est développé et testé sur macOS. Il est écrit pour fonctionner aussi sous Linux et Windows, mais il n'y a pas encore été essayé.
+> Le logiciel est développé sur macOS et tourne en permanence sur un petit serveur Linux. Tous les tests passent aussi sous Linux et Windows, relancés automatiquement à chaque envoi (voir [Pour le développement](#21-pour-le-développement)). L'usage réel sous Windows (douchette, mode téléphone, pare-feu) n'a pas encore été essayé : vos retours sont bienvenus.
 
 ### macOS et Linux
 
@@ -118,7 +123,7 @@ Remplacez le code, puis redémarrez le serveur. Si le serveur tournait pendant l
 5. **À traiter** : complétez les rares livres introuvables.
 6. **Catalogue** : consultez, cherchez, rangez par lots.
 
-La barre du haut donne accès à toutes les pages. Elle indique aussi combien de livres sont en cours de recherche, le système de classement affiché, le thème et la langue.
+La barre du haut donne accès à toutes les pages. Elle indique aussi combien de livres sont en cours de recherche, le thème et la langue. Sur téléphone, elle garde Scanner, Catalogue, Lieux et À traiter ; le bouton ☰ ouvre un menu latéral avec les autres pages, le thème et la langue.
 
 ---
 
@@ -128,13 +133,15 @@ La barre du haut donne accès à toutes les pages. Elle indique aussi combien de
 
 Une douchette se comporte comme un clavier : elle tape le code puis Entrée. Il n'y a rien à installer.
 
-- Le champ de scan garde le focus : vous pouvez enchaîner sans toucher à la souris.
+- **Trois saisies au choix**, en haut du poste de scan : **Douchette**, **Caméra** et **À la main**. Le choix est mémorisé sur chaque appareil.
+- **Enchaîner** : sur **Douchette**, lisez les livres à la suite, sans toucher à l'écran ni à la souris. Sur téléphone, le clavier virtuel ne s'ouvre pas. Touchez l'écran une fois pour activer les bips.
 - **Le scan n'attend jamais le réseau.** Le livre est enregistré tout de suite, et sa description arrive quelques secondes plus tard.
-- **Sons** : un bip aigu pour un livre ajouté, un double bip pour un livre déjà possédé ou mal rangé, un bip grave pour une erreur. La case « Bips sonores » les coupe.
-- **Douchette en QWERTY sur un clavier AZERTY** : les chiffres arrivent en `çè&é…`. C'est corrigé automatiquement, sur Mac comme sur PC.
+- **Sons** : un bip aigu pour un livre ajouté, un double bip pour un livre déjà possédé ou mal rangé, un bip grave pour une erreur. La case « Bips sonores » les coupe, comme le bouton haut-parleur de la caméra.
+- **Disposition du clavier** : seule la touche physique compte, en QWERTY comme en AZERTY, sur Mac, PC et téléphone.
+- **Mode poche** (téléphone, bouton sous le champ) : l'écran reste allumé mais tout noir, les touchers sont ignorés et les bips conservés. Pour sortir, maintenez le doigt 2 secondes. Une page web ne reçoit rien quand le téléphone est verrouillé : si le verrou d'écran est refusé (mode économie d'énergie), le mode ne s'ouvre pas ; si l'écran se verrouille quand même (bouton latéral, appel), une alerte le signale au retour. La douchette bipe seule en lisant : seul le bip du téléphone prouve l'enregistrement.
 - **Code prix** : les 5 chiffres parfois collés à l'EAN sont ignorés.
 - **Double lecture accidentelle** : deux lectures du même code en moins de 4 secondes, au même emplacement, comptent pour un seul livre. Pour un vrai second exemplaire au même endroit, attendez 4 secondes.
-- **Sans douchette** : tapez l'ISBN (10 ou 13 chiffres, avec ou sans tirets) dans le champ et validez.
+- **Sans douchette** : choisissez **À la main**, tapez l'ISBN (10 ou 13 chiffres, avec ou sans tirets), puis Entrée ou **Valider**.
 
 ### Les quatre modes
 
@@ -218,14 +225,14 @@ Sur l'ordinateur, ouvrez la page **Téléphone** (ou lancez `biblio phone` pour 
 | Linux | Si un pare-feu est actif : `sudo ufw allow 8443,8080/tcp` |
 
 **Ports** : 8000 pour l'ordinateur, 8443 pour le téléphone (HTTPS), 8080 pour l'installation du certificat. Ils se changent : `--port`, `--phone-port`, `--install-port` (ou les variables `BIBLIO_PORT_HTTPS` et
-`BIBLIO_PORT_INSTALLATION`), par exemple sur un Raspberry Pi où un autre service occupe déjà 8080 et 8443
+`BIBLIO_PORT_INSTALLATION`), par exemple sur un serveur où un autre service occupe déjà 8080 et 8443
 ([deploy/README.fr.md](deploy/README.fr.md)).
 
 **Sécurité**
 
-- L'ordinateur lui-même accède librement à l'appli. Tout autre appareil doit présenter la clé secrète contenue dans le QR code 2, qui est ensuite gardée dans un cookie. Cette clé donne accès à toute l'appli, sauf aux QR codes.
+- L'ordinateur lui-même accède librement à l'appli. Tout autre appareil doit se connecter avec un compte ([section 23](#23-comptes-rôles-et-connexion)), ou présenter la clé secrète contenue dans le QR code 2, gardée ensuite dans un cookie. Cette clé donne le rôle Bibliothécaire : toute l'appli, sauf les réglages, la page Téléphone et l'administration.
 - Les autres sites ouverts dans votre navigateur ne peuvent ni lire la bibliothèque ni y écrire : l'appli refuse une écriture venue d'une autre page, et une adresse qui n'est pas la sienne.
-- Le certificat installé sur le téléphone ne vaut que pour le réseau local (`localhost`, noms en `.local`, adresses privées). Même si sa clé privée fuitait, il ne permettrait pas d'imiter un autre site. Un certificat installé avant cette protection continue de fonctionner, sans cette limite ; pour en profiter, supprimez `certs/` dans les données de l'ordinateur, puis réinstallez le certificat sur le téléphone.
+- Une autorité créée par une version récente ne vaut que pour ce serveur et le réseau local (`localhost`, le nom de l'ordinateur à sa création, adresses privées). Même si sa clé privée fuitait, il ne permettrait pas d'imiter un autre site. Un certificat installé avant cette protection continue de fonctionner, sans cette limite ; pour en profiter, supprimez `certs/` dans les données de l'ordinateur, puis réinstallez le certificat sur le téléphone.
 - Page Téléphone › « Changer la clé » (ou `biblio phone --new-key`) coupe l'accès de tous les téléphones déjà connectés. Ils devront rescanner le QR code.
 - Le serveur d'installation (port 8080) ne sert que le certificat, aucune donnée de la bibliothèque.
 - Le certificat du serveur se renouvelle seul, y compris quand l'adresse IP change, sans rien réinstaller sur le téléphone.
@@ -237,7 +244,7 @@ Sur l'ordinateur, ouvrez la page **Téléphone** (ou lancez `biblio phone` pour 
 
 **Cherchez d'abord un ISBN.** Beaucoup de livres des années 1970 à 2000 n'ont pas de code-barre, mais portent un ISBN imprimé, souvent au verso de la page de titre. Tapez-le dans le champ du poste de scan : la fiche se remplit seule.
 
-**Sinon**, ouvrez la page d'ajout manuel : lien « Pas de code-barre ? » sous le champ de scan (il reprend l'emplacement courant), ou Catalogue › « + Livre sans code-barre ». En haut de la page, choisissez l'emplacement et le propriétaire. Ils valent pour les deux parcours :
+**Sinon**, ouvrez la page d'ajout manuel : bouton « Pas de code-barre ? », sous « À la main » sur le poste de scan (il reprend l'emplacement courant). En haut de la page, choisissez l'emplacement et le propriétaire. Ils valent pour les deux parcours :
 
 **1. Chercher à la BnF** (facultatif) par titre, auteur et année.
 
@@ -264,7 +271,7 @@ La commande interroge d'abord la BnF et propose une liste numérotée (0 = aucun
 
 ## 7. Le catalogue
 
-**Par défaut, le catalogue ne montre que vos livres.** La section **Propriétaire** de la colonne de gauche indique « Mes livres » et, une fois des catalogues d'amis fusionnés, chaque ami et « Tout le monde ».
+**Par défaut, le catalogue ne montre que vos livres.** La section **Propriétaire** de la colonne de gauche apparaît une fois des catalogues d'amis fusionnés : « À moi », chaque ami et « Tout le monde ».
 
 ### Rechercher et filtrer
 
@@ -274,8 +281,8 @@ La commande interroge d'abord la BnF et propose une liste numérotée (0 = aucun
 - **Classes** : les classes du système affiché, avec leur nombre de livres, plus « À classer ».
 - **Tri** : ordre de rangement, auteur, titre, année, derniers ajouts.
 - **Affichage** : liste ou couvertures.
-- **Classement** : le choix du système dans la colonne de gauche change les cotes affichées.
-- **Sur téléphone** : lieu, dates, classes, affichage et classement sont regroupés derrière le bouton **Filtres**, qui indique le nombre de filtres actifs. Toucher un livre ouvre sa fiche ; la colonne de gauche sert à le cocher.
+- **Classement** : le choix du système dans la colonne de gauche change les cotes affichées. Le système par défaut se règle dans Réglages.
+- **Sur téléphone** : lieu, dates, classes et classement sont regroupés derrière le bouton **Filtres**, qui indique le nombre de filtres actifs et reste ouvert pour en combiner plusieurs. Toucher un livre ouvre sa fiche ; le bouton **Sélectionner** fait apparaître les cases des opérations groupées.
 
 ### Opérations groupées
 
@@ -384,9 +391,11 @@ La page **Lieux** permet de créer, renommer et supprimer les lieux et les étag
 
 - Supprimer un **lieu** : ses livres deviennent « non localisés ».
 - Supprimer une **étagère** : ses livres restent dans le lieu.
+- Une étagère peut avoir des **rangées**, facultatives : menu « ⋯ » de l'étagère, plusieurs noms séparés par des virgules. Un livre peut rester sur l'étagère sans rangée. Supprimer une rangée laisse ses livres sur l'étagère.
+- **Étiquettes à imprimer** : un code-barres par lieu, étagère et rangée (page Lieux). Scanner une étiquette choisit l'emplacement, dans n'importe quel mode, y compris sans réseau ; on scanne ensuite les livres. Ce sont des EAN-13 à usage interne (préfixe 29), lus par la douchette comme par la caméra. L'étiquette reste la même dans vos bases synchronisées. Une rangée ou un lieu renommé garde la sienne.
 - « Voir les livres » ouvre le catalogue filtré.
 
-En ligne de commande : `biblio place add|shelf|rename|remove|list`. La forme `Lieu/Étagère` désigne une étagère, sans tenir compte des majuscules ni des accents.
+En ligne de commande : `biblio place add|shelf|row|rename|remove|list`. Les formes `Lieu/Étagère` et `Lieu/Étagère/Rangée` désignent une étagère et une rangée, sans tenir compte des majuscules ni des accents.
 
 ### Ordre de rangement
 
@@ -451,7 +460,7 @@ Une confirmation est toujours demandée (`--yes` la saute en CLI). Conséquences
 
 - un prêt en cours de cet exemplaire est clos ;
 - le livre quitte son emplacement ;
-- il disparaît de « Mes livres » et de vos statistiques.
+- il disparaît de vos livres et de vos statistiques.
 
 **Recevoir un livre** se fait de la même façon. Si le livre est déjà dans la base au nom d'un ami : « Changer de propriétaire… » puis votre nom. Il arrive non localisé, prêt à être rangé. Sinon, scannez-le simplement.
 
@@ -500,7 +509,7 @@ Dans l'appli : Réglages › « Partager avec un ami » (choix des lieux, cases 
 |---|---|
 | Fiches, cotes, réponses des catalogues (l'ami n'a rien à retélécharger) | Vos notes, vos lectures, les détails de vos exemplaires (état, prix, provenance…) |
 | Vos exemplaires, à votre nom | Votre clé Google et la clé du téléphone |
-| Lieux, sous forme de texte, si non masqués | Vos réglages, l'historique, les couvertures |
+| Lieux, sous forme de texte, si non masqués | Vos réglages, l'historique, les couvertures, le nom de ceux qui ont scanné |
 | Vos prêts, seulement avec `--with-loans` | |
 
 Les couvertures se téléchargent toutes seules chez l'ami, au premier affichage.
@@ -603,7 +612,9 @@ Limites :
 
 Une erreur en cours de route ne laisse rien à moitié fait, et une copie est faite avant : `data/biblio-avant-synchro.db`.
 
-Si le même dossier est synchronisé par OneDrive, il n'y a qu'une seule base : pas besoin de `sync`, mais n'ouvrez pas l'appli sur deux ordinateurs en même temps.
+Avec un serveur Linux installé par `deploy/`, `./deploy/synchroniser.sh` fait tout depuis l'ordinateur : par défaut dans les deux sens, ou dans un seul avec `--vers-local` ou `--vers-serveur`. Voir [deploy/README.fr.md](deploy/README.fr.md#synchroniser-lordinateur-et-le-serveur).
+
+Si le même dossier est synchronisé par un service comme OneDrive ou Dropbox, il n'y a qu'une seule base : pas besoin de `sync`, mais n'ouvrez pas l'appli sur deux ordinateurs en même temps.
 
 ---
 
@@ -716,7 +727,7 @@ Il pourra ensuite vous envoyer ses mises à jour lui-même avec `biblio share`. 
 
 **J'ai mal écrit le chemin de `BIBLIO_DB`.** Une nouvelle base vide est créée sans avertissement. Vérifiez le chemin affiché dans Réglages.
 
-**Le téléphone affiche « Accès refusé ».** Il garde la clé de l'autre base : rescannez le QR code « Scanner ». C'est aussi le cas d'une icône d'écran d'accueil créée sur l'autre base.
+**Le téléphone demande un identifiant et un code.** Il garde la clé de l'autre base : rescannez le QR code « Scanner ». C'est aussi le cas d'une icône d'écran d'accueil créée sur l'autre base.
 
 ---
 
@@ -729,9 +740,11 @@ Une tâche de fond décrit les livres, sans quota journalier, au rythme poli d'e
 | **BnF** (catalogue général, UNIMARC) | Source principale pour les livres français. Fournit le Dewey des documentaires et le « cadre de classement » pour la fiction. |
 | **Open Library** | Couvertures, livres anglophones, Dewey et LCC complémentaires. |
 | **Library of Congress** | LCC et Dewey des livres non français. |
-| **Google Books** | Facultatif, seulement avec une clé API gratuite (Réglages, voir [Obtenir une clé Google Books](#obtenir-une-clé-google-books)). Sans clé, Google Books n'est pas interrogé. Avec une clé, il n'est interrogé que pour les livres sans titre ou sans résumé. |
+| **Sudoc** (bibliothèques universitaires, UNIMARC) | Sans clé. Complète la BnF, avec souvent un Dewey même pour la fiction, et décrit des livres qu'elle n'a pas. |
+| **K10plus**, **DNB** (bibliothèques allemandes, MARC21) | Sans clé. Interrogés seulement pour les livres introuvables ailleurs. |
+| **Google Books** | Facultatif, seulement avec une clé API gratuite (Administration › Catalogues, voir [Obtenir une clé Google Books](#obtenir-une-clé-google-books)). Sans clé, Google Books n'est pas interrogé. Avec une clé, il n'est interrogé que pour les livres sans titre ou sans résumé. |
 
-Quand plusieurs catalogues répondent, l'ordre de confiance pour les champs descriptifs est : BnF, Open Library, Google Books, Library of Congress.
+Quand plusieurs catalogues répondent, l'ordre de confiance pour les champs descriptifs est : BnF, Sudoc, Open Library, Google Books, Library of Congress, K10plus, DNB. Les catalogues des disques et des films : [section 22](#22-disques-et-films). Leur état se voit dans [Administration › Catalogues](#24-page-dadministration).
 
 **Les réponses brutes sont conservées** (table `raw_responses`). Un ISBN n'est donc pas réinterrogé inutilement, et tout peut être recalculé sans réseau.
 
@@ -857,9 +870,24 @@ La page **Statistiques** (résumé : `biblio stats`) ne compte que vos livres :
   - complétude des fiches, en pourcentage ;
   - état des fiches ;
   - état des exemplaires et valeur de la collection, d'après ce que vous avez renseigné.
+- **Bibliothécaires** : pour chaque personne, les livres qu'elle a introduits, ses scans et la date de son dernier scan, puis les scans par mois sur 12 mois. Voir [Qui a scanné quoi](#qui-a-scanné-quoi).
 - **Chez les amis**, si vous avez importé un catalogue : pour chaque ami, ses exemplaires, ses titres, ceux que vous avez aussi et ceux que vous n'avez pas.
 
 Plusieurs cartes se basculent entre liste, camembert et histogramme, et le choix est mémorisé sur l'appareil. Les noms de livres, d'auteurs, d'éditeurs, de collections et d'étagères sont des liens vers la fiche ou le catalogue. Au survol ou au toucher d'une barre, une infobulle donne le détail.
+
+### Qui a scanné quoi
+
+Chaque exemplaire garde l'auteur de son premier scan, ainsi que la date et l'auteur de son dernier scan. Chaque scan s'ajoute en plus à un historique, d'où viennent les comptes des Statistiques.
+
+Un scan compte quel que soit le mode : ajout, déplacement, inventaire ou « où est-il ? ». Une double lecture ignorée ou un code inconnu ne comptent pas. Un livre saisi à la main, trouvé par la recherche BnF ou ajouté depuis sa fiche a un auteur, mais ne compte pas comme un scan.
+
+| Accès | Le scan est compté pour |
+|---|---|
+| Compte personnel | Son identifiant |
+| Clé du QR code | « Téléphone partagé », car n'importe qui peut l'utiliser |
+| Cet ordinateur, clé admin, ligne de commande | Le réglage `biblio config bibliothecaire alex`, sinon le nom du propriétaire |
+
+Quand un exemplaire est retiré, ses scans sortent des comptes. Un scan gardé hors ligne est daté de son envoi. Ces informations ne vont jamais dans un fichier de partage, mais la synchronisation entre vos ordinateurs les reprend.
 
 ### Exports
 
@@ -868,20 +896,48 @@ Plusieurs cartes se basculent entre liste, camembert et histogramme, et le choix
 
 Une ligne par exemplaire, tous propriétaires confondus, avec toutes les cotes en colonnes. En CLI, le fichier va dans `data/exports/`, sauf avec `--output`.
 
+En CLI, `--place` limite l'export à un lieu, et se répète pour en prendre plusieurs : `biblio export --place Salon --place Chambre`. Ce filtre vaut pour les quatre formats et désigne un lieu entier, pas une étagère. Le nom du lieu entre dans le nom du fichier, si bien qu'un second export ne remplace pas le premier. Dans un fichier Goodreads ou Babelio, seuls les livres présents dans ces lieux figurent, mais `Owned Copies` compte tous vos exemplaires.
+
+### Applis de lecture
+
+Aucune appli de lecture courante ne propose de synchronisation : les échanges passent par des fichiers CSV. Tout se trouve sur la page **Applis de lecture**, accessible depuis le catalogue et les Réglages, ou en CLI. Ces fichiers partent chez un tiers : ils ne contiennent ni notes personnelles, ni prix, ni prêts. Seul le fichier Goodreads peut nommer vos lieux.
+
+Les deux exports contiennent une ligne par livre, pas par exemplaire : vos livres, et ceux d'amis qui ont un état de lecture. Un livre sans état de lecture part en « à lire », car ces formats en demandent un. Pour éviter cela, cochez **Seulement les livres avec un état de lecture**, ou ajoutez `--only-with-status`.
+
+- **Fichier Goodreads** (`biblio export -f goodreads`) : pour Book Tracker, StoryGraph, Hardcover, et les autres applis qui acceptent ce format. L'état de lecture est dans `Exclusive Shelf`, et recopié dans `Status` pour Hardcover. `Bookshelves` ne contient que les emplacements complets de tous vos exemplaires, écrits comme dans l'app : `[MAISON] - Chambre › Bureau`. Seule une virgule dans un nom est retirée, car elle sépare les étagères. Selon l'appli, ces étagères peuvent être visibles par d'autres lecteurs : pour laisser cette colonne vide, décochez **Indiquer les emplacements dans la colonne Bookshelves**, ou ajoutez `--no-places`.
+- **Fichier Babelio** (`biblio export -f babelio`) : au modèle d'import de Babelio, avec statut, note et date de fin de lecture. Sur Babelio, utilisez **Ajouter des livres**, puis **Importer votre bibliothèque depuis un fichier**. Babelio accepte 2 500 lignes par import, et les livres sans ISBN ni EAN sont laissés de côté. Son modèle n'a pas d'état « abandonné » : ces livres partent « En cours », sur une étagère `abandonné`.
+
+**Importer depuis Babelio** récupère les statuts et les notes :
+
+1. Sur Babelio, ouvrez **Paramètres**, puis **Exporter ma bibliothèque**.
+2. Déposez le fichier sur la page, ou lancez `biblio import-babelio FICHIER`. Un aperçu s'affiche (`--dry-run` en CLI s'arrête là).
+3. Appliquez. La base est d'abord copiée dans `data/biblio-avant-babelio.db`.
+
+| Cas | Ce que fait l'import |
+|---|---|
+| Statut ou note vide ici | Rempli avec la valeur de Babelio |
+| Valeur différente ici | Conservée et signalée ; la case **En cas de désaccord** ou `--overwrite` donne raison à Babelio |
+| Note à 0 sur Babelio | Ignorée : elle veut dire « pas de note » |
+| Demi-étoile (3,5) | Arrondie au-dessus (4), car une note compte de 1 à 5 étoiles entières |
+| « Pense-bête » ou « Wishlist » | Devient « à lire » |
+| ISBN inconnu ici | Cherché par titre et auteur, si un seul livre correspond (autre édition) |
+| Livre absent d'ici | Ignoré et listé : Babelio contient aussi des livres lus sans être possédés |
+
+L'export de Babelio ne contient pas les dates de lecture : elles ne reviennent pas.
+
 ---
 
 ## 17. Réglages, thème et langue
 
-**Thème** : trois icônes en haut à droite. Automatique (suit le réglage clair ou sombre de l'appareil), clair, sombre. Le choix est propre à chaque appareil et à chaque navigateur.
+**Thème** : trois icônes en haut à droite, ou dans le menu ☰ sur téléphone. Automatique (suit le réglage clair ou sombre de l'appareil), clair, sombre. Le choix est propre à chaque appareil et à chaque navigateur.
 
-**Langue** : **FR · EN** en haut à droite, ou Réglages. Elle s'applique à toute l'appli et à tous les appareils. La CLI est toujours en anglais.
+**Langue** : **FR · EN** en haut à droite (dans le menu ☰ sur téléphone), ou Réglages. Elle s'applique à toute l'appli et à tous les appareils. La CLI est toujours en anglais.
 
 **Page Réglages** :
 
 - langue de l'interface ;
 - système de classement affiché par défaut ;
 - votre nom de propriétaire ;
-- clé API Google Books (facultative, gratuite, 1 000 requêtes par jour, API « Books » de la console Google Cloud) ;
 - chemin de la base et nombre de réponses conservées ;
 - exports ;
 - recalcul des cotes ;
@@ -933,7 +989,7 @@ Une réponse contenant `totalItems` signifie que la clé fonctionne, même si ce
 
 **3. L'enregistrer dans le logiciel**
 
-Collez-la dans la page **Réglages**, champ « Clé API Google Books ». C'est la méthode à préférer, car la clé ne reste pas dans l'historique du terminal. En ligne de commande :
+Collez-la dans **Administration › Catalogues**, ligne Google Books, « Réglages ». C'est la méthode à préférer, car la clé ne reste pas dans l'historique du terminal. En ligne de commande :
 
 ```bash
 biblio config google_api_key VOTRE_CLE
@@ -1034,7 +1090,8 @@ Tris : `shelf`, `title`, `author`, `year`, `added`.
 | `system [SYSTÈME]` | Voir ou choisir le système par défaut |
 | `config [CLÉ] [VALEUR] [--clear]` | `google_api_key`, `systeme`, `langue`, `proprietaire` |
 | `reclassify [--reread]` | Recalculer les cotes, sans réseau |
-| `export [-f xlsx\|csv] [-o FICHIER] [-s SYSTÈME]` | Exporter |
+| `export [-f xlsx\|csv\|goodreads\|babelio] [-o FICHIER] [-s SYSTÈME] [-p LIEU]… [--only-with-status] [--no-places]` | Exporter |
+| `import-babelio FICHIER [--overwrite] [--dry-run] [--yes]` | Récupérer les statuts et les notes de Babelio |
 | `backup [--dir DOSSIER] [--keep N]` | Copier la base, même serveur en marche ; 14 copies gardées par défaut |
 | `sql ["REQUÊTE"]` | Requête SQL directe, ou shell SQLite sans argument |
 | `serve [--port N] [--host H] [--phone] [--no-open]` | Lancer l'appli web |
@@ -1062,7 +1119,7 @@ Tris : `shelf`, `title`, `author`, `year`, `added`.
 | Table | Contenu |
 |---|---|
 | `personnes` | Propriétaires, prêteurs, emprunteurs : `uid` stable, `nom`, `cle` (nom sans casse ni accents) |
-| `notices` | Le livre : `uid` stable, `isbn13` s'il en a un, description, `corrections` (champs corrigés et leur date), note et lecture |
+| `notices` | Le livre, le disque ou le film : `uid` stable, `support`, `isbn13` ou `ean` s'il en a un, `pistes`, description, `corrections` (champs corrigés et leur date), note et lecture |
 | `exemplaires` | L'objet : `uid` stable, `notice_id`, `proprietaire_id`, lieu, `lieu_texte` chez un ami, détails (état, prix…), date `maj_le` |
 | `classifications` | Une cote par système et par notice |
 | `raw_responses` | Les réponses brutes des catalogues |
@@ -1102,6 +1159,7 @@ OneDrive ou un service équivalent n'est pas une sauvegarde de la base : pendant
 | `BIBLIO_CERTS` | Dossier des certificats |
 | `BIBLIO_COVERS` | Dossier des couvertures |
 | `BIBLIO_GOOGLE_KEY` | Clé Google Books, prioritaire sur le réglage |
+| `BIBLIO_NOM` | Nom de l'ordinateur sur le réseau, pour les adresses et le certificat (sur un serveur : `NOM_RESEAU` de `deploy/serveur.conf`) |
 | `UV_PROJECT_ENVIRONMENT` | Emplacement de l'environnement Python |
 
 Pour essayer quelque chose sans risque, travaillez sur une copie :
@@ -1123,7 +1181,7 @@ Sous Windows, dans PowerShell : `$env:BIBLIO_DB = "C:\chemin\essai.db"`, puis la
 | Bandeau rouge « Le programme a été mis à jour » | Redémarrez le serveur. |
 | Mise en page étrange après une mise à jour | Forcez le rechargement (Cmd+Maj+R, ou Ctrl+Maj+R). |
 | Le téléphone n'atteint pas la page | Même Wi-Fi ? Un Wi-Fi invité peut isoler les appareils. Le serveur tourne-t-il avec `--phone` ? Vérifiez le pare-feu (voir [section 5](#5-scanner-avec-le-téléphone)). |
-| « Accès refusé » sur le téléphone | La clé a changé, ou vous avez changé de base : rescannez le QR code « Scanner ». Pour une icône d'écran d'accueil : supprimez-la, puis recréez-la depuis le QR code dans Safari. |
+| Le téléphone demande de se connecter | La clé a changé, ou vous avez changé de base : rescannez le QR code « Scanner ». Pour une icône d'écran d'accueil : supprimez-la, puis recréez-la depuis le QR code dans Safari. |
 | La caméra ne s'ouvre pas | Le certificat n'est probablement pas installé : QR code 1. Sur iPhone, seul Safari l'installe, et la confiance doit être activée dans Réglages › Général › Informations › Réglages des certificats. |
 | Un livre reste « en recherche » | Le serveur doit tourner pour que les recherches avancent, sinon lancez `biblio resolve`. |
 | Livre « introuvable » | Aucun catalogue ne le connaît : complétez la fiche, ou essayez `biblio resolve --retry` plus tard. |
@@ -1149,10 +1207,22 @@ Sous Windows, dans PowerShell : `$env:BIBLIO_DB = "C:\chemin\essai.db"`, puis la
 ## 21. Pour le développement
 
 ```bash
-uv run pytest
+uv run pytest                       # tous les tests
+uv run pytest -m "not navigateur"   # sans ceux du navigateur, plus lents
+uv run ruff check                   # erreurs et pièges du code Python
 ```
 
-Les tests n'utilisent pas le réseau : les lecteurs de catalogues sont testés sur de vraies réponses enregistrées dans `tests/fixtures/`. Ils ne touchent jamais la vraie base, les couvertures ni les certificats.
+Les tests du poste de scan (`tests/test_navigateur.py`) ouvrent la vraie page dans Chromium, piloté par
+Playwright, contre un vrai serveur : douchette (y compris en AZERTY), étiquettes, double lecture, annulation,
+saisie à la main, file hors ligne, refus des écritures venues d'un autre site. D'autres imitent un téléphone Android (écran, tactile et navigateur d'un Pixel 7) : saisie à la main sans clavier qui s'ouvre tout seul, douchette Bluetooth, menu, et aucune page plus large que l'écran. Ni la caméra ni Safari sur iPhone ne sont testés : pour eux, seul un vrai téléphone fait foi. Il faut une fois
+`uv run playwright install chromium` ; sans lui, ces tests sont sautés.
+
+À chaque envoi sur `main` (et à chaque pull request), GitHub relance ruff et tous les tests sous Linux et
+Windows : c'est la CI, décrite dans `.github/workflows/tests.yml`. Le résultat s'affiche à côté de chaque
+commit sur GitHub (onglet **Actions**), et GitHub envoie un mail en cas d'échec. macOS n'y figure pas :
+il est testé en local.
+
+Les tests n'utilisent pas le réseau, et `tests/conftest.py` y veille : toute vraie requête y échoue comme sans connexion. Les lecteurs de catalogues sont testés sur de vraies réponses enregistrées dans `tests/fixtures/`. Ils ne touchent jamais la vraie base, les couvertures ni les certificats.
 
 | Élément | Emplacement |
 |---|---|
@@ -1167,3 +1237,141 @@ Les tests n'utilisent pas le réseau : les lecteurs de catalogues sont testés s
 | Traductions | `biblio/traductions.py` |
 
 Toute phrase affichée par l'interface doit avoir sa traduction anglaise dans `biblio/traductions.py` : un test le vérifie. La clé est le texte français exact.
+
+---
+
+## 22. Disques et films
+
+Scannez un CD, un vinyle, une cassette, un DVD ou un Blu-ray comme un livre : le code-barres (EAN-13, ou UPC à 12 chiffres) crée une notice « support à préciser », et la recherche en arrière-plan fait le reste. Tout ce qui existe pour les livres s'applique : emplacement, prêts, inventaire, doublons, partage, synchronisation, exports.
+
+| Catalogue | Clé | Rôle |
+|---|---|---|
+| **MusicBrainz** + Cover Art Archive | aucune | Pistes, format exact, label et référence, pochette. Préfère l'édition française quand un code en désigne plusieurs. |
+| **Discogs** | jeton facultatif | Très riche en vinyles. Sans jeton : 25 requêtes par minute, pas de pochette. |
+| **Deezer**, **iTunes** | aucune | Complètent les pistes et la pochette. |
+| **UPCitemdb** | aucune (essai, quota réduit) | Code-barres vers titre, surtout pour les films. |
+| **TMDb**, **OMDb** | clé gratuite obligatoire | Description et affiche d'un film. Ils ne cherchent que par titre. |
+
+**Ordre de recherche.** Un code-barres ne dit pas ce qu'il désigne : la musique d'abord, car ses catalogues le lisent directement. Sans résultat, UPCitemdb donne un titre, qui sert à interroger TMDb puis OMDb.
+
+**Limites connues**
+
+- L'identification d'un DVD au code-barres est la partie la moins fiable : sans clé TMDb, la fiche n'aura qu'un titre tiré d'un site de commerce, parfois approximatif. Corrigez le titre sur la fiche, passez le support en DVD ou Blu-ray, puis « Réinterroger les catalogues » : TMDb cherche alors avec votre titre.
+- iTunes et Deezer ne disent pas le format : un disque trouvé seulement chez eux est noté CD.
+- Un code-barres de produit quelconque est accepté et finit dans « À traiter ». Seuls les ISSN des revues (977) restent refusés.
+
+**Cotes.** Dewey, CDU et LCC d'après le genre, selon `rules/media.toml` (modifiable), et Rayons perso (`Musique`, `Films`) selon `rules/rayons.toml`. Clil, Thema et Cadre BnF ne décrivent que des livres : ils restent vides.
+
+**Lecture.** L'état « lu » et les étoiles servent aussi d'écoute ou de visionnage, et ils sont communs à toute la maison ([section 23](#23-comptes-rôles-et-connexion)).
+
+---
+
+## 23. Comptes, rôles et connexion
+
+Créez un compte pour chaque personne dans **Administration › Comptes** : vous lui donnez un identifiant et un code. Elle les tape **une fois par appareil** : l'appareil reste ensuite connecté, sans date limite tant qu'il sert (un an renouvelé à chaque usage), jusqu'à ce que vous le coupiez. Sur iPhone, une icône d'écran d'accueil a ses propres cookies : on tape le code une fois de plus dans l'icône. Décocher « Se souvenir de cet appareil » limite la connexion à la session du navigateur.
+
+| | Lecteur | Contributeur | Bibliothécaire | Admin |
+|---|---|---|---|---|
+| Catalogue, fiches, « où est-il ? » | oui | oui | oui | oui |
+| Scanner, ranger, inventaire, ajout à la main | | oui | oui | oui |
+| Modifier les fiches, lieux, prêts, dons, retraits, exports | | | oui | oui |
+| Voir notes, prix, emprunteurs, statistiques | | | oui | oui |
+| Réglages, Téléphone, partage, administration | | | | oui |
+
+**Sécurité**
+
+- Le code est gardé haché (scrypt), et seule l'empreinte du jeton de session est en base : lire le fichier de la base ne permet pas d'entrer avec un compte. Il contient toutefois en clair la clé du téléphone et les clés des catalogues.
+- Après 5 essais faux, un identifiant est bloqué une minute depuis cette adresse, puis deux, quatre… jusqu'à une heure. Une adresse est aussi bloquée après 20 essais, tous identifiants confondus.
+- Changer le rôle d'un compte s'applique tout de suite. Désactiver un compte ou lui donner un nouveau code coupe ses appareils.
+- Le dernier administrateur actif ne peut être ni supprimé, ni désactivé, ni rétrogradé.
+- Comptes, appareils et journal restent dans leur base : jamais dans un fichier de partage, jamais synchronisés.
+
+**Ce qui ne change pas**
+
+- **Les certificats** : l'autorité installée sur les téléphones reste la même, et le serveur d'installation aussi.
+- **La clé des QR codes** : les téléphones déjà connectés continuent de fonctionner, avec le rôle Bibliothécaire. Une fois les comptes créés, coupez-la dans **Administration › Accès réseau**.
+- **La clé admin** : c'est par elle que vous entrez sur un serveur sans écran pour créer votre premier compte.
+- **`localhost`** reste administrateur sans connexion : c'est la porte de secours, par le tunnel SSH sur un serveur.
+
+**Limite.** Lecture, étoiles et notes sont rattachées à la fiche, donc communes à toute la maison. C'est pourquoi le Lecteur et le Contributeur ne les voient ni ne les modifient.
+
+**En ligne de commande** : `biblio user add NOM --role admin`, `biblio user list`, `biblio user reset NOM`, `biblio user disable NOM [--enable]`.
+
+---
+
+## 24. Page d'administration
+
+Lien **Administration** dans le menu, et carte dans **Réglages**. Réservée au rôle Admin.
+
+- **Santé** : nombre de livres, disques, films et exemplaires, version, taille de la base, espace disque, recherche en arrière-plan, dernière sauvegarde, adresse, échéance et empreinte des certificats (en simple lecture).
+- **Comptes** : créer, modifier, désactiver, supprimer, changer le rôle, donner un nouveau code. Le code ne s'affiche qu'une fois. Liste des appareils de chacun, coupure à l'unité.
+- **Catalogues** : pour chaque catalogue, s'il répond, le temps de réponse, le dernier test, les réponses gardées, les absents, les erreurs. Chacun peut être désactivé, et les clés se saisissent ici. Le test tourne à la demande (« Tester maintenant »), et de lui-même à l'ouverture si le dernier a plus de 5 minutes. Rien ne tourne en permanence. En ligne de commande : `biblio sources`.
+- **Accès réseau** : couper, rétablir ou changer la clé des QR codes, changer la clé admin.
+- **Journal** : connexions, échecs, blocages, changements de comptes, de clés et de catalogues, conservés 90 jours. Jamais de code ni de clé.
+- **Système** : sauvegardes (créer, télécharger), recalcul des cotes, relance des recherches en échec, exports.
+
+**Lire l'état d'un catalogue.** « Répond » veut dire qu'il a répondu, même « je ne connais pas ». « En panne » vient souvent de lui : essayez plus tard. Pendant ce temps, les scans restent enregistrés et la recherche réessaiera.
+
+---
+
+## 25. Sécurité
+
+Le logiciel est fait pour le réseau de la maison. Il n'est **pas fait pour être ouvert sur Internet** :
+n'ouvrez aucun de ses ports sur votre box.
+
+### Qui peut entrer, et par où
+
+| Porte | Qui l'atteint | Ce qu'il faut pour entrer |
+|---|---|---|
+| `http://localhost:8000` | l'ordinateur lui-même seulement (écoute sur `127.0.0.1`) | rien : c'est l'administrateur, la porte de secours |
+| HTTPS du mode téléphone (8443 par défaut) | tout appareil du réseau local | un compte (identifiant et code), la clé des QR codes (rôle Bibliothécaire) ou la clé admin |
+| Page d'installation (8080 par défaut) | tout appareil du réseau local | rien, mais elle ne sert que le certificat de l'autorité |
+| Ligne de commande, SSH | qui a une session sur la machine | tout : la base est un simple fichier |
+| Fichier de partage | l'ami à qui vous l'envoyez | ni données personnelles, ni clés, ni réglages ; lieux en texte ou masqués ; prêts seulement si vous le demandez |
+
+### Ce qui protège
+
+- **Les codes** sont gardés hachés (scrypt), jamais en clair. Après 5 essais faux, l'identifiant est bloqué
+  depuis cette adresse, une minute puis de plus en plus longtemps, jusqu'à une heure. Une adresse est bloquée
+  après 20 essais, tous identifiants confondus.
+- **Les sessions** reposent sur un jeton aléatoire, dans un cookie illisible par les pages (`HttpOnly`), jamais
+  envoyé par un autre site (`SameSite=Lax`), et seulement en HTTPS sur le réseau. L'administrateur peut couper
+  chaque appareil.
+- **Les clés** (QR codes, admin) sont tirées au hasard (24 octets). Passée une fois dans l'adresse, la clé
+  part dans un cookie et disparaît de la barre d'adresse.
+- **Un autre site ouvert dans le navigateur** ne peut rien écrire : toute écriture doit venir d'une page de la
+  bibliothèque (en-tête `Origin` vérifié), et aucune page ne modifie quoi que ce soit en simple lecture.
+  Il ne peut pas non plus lire `localhost` en faisant pointer son propre nom vers l'ordinateur (« rebinding DNS ») :
+  le serveur refuse toute adresse qui n'est pas la sienne.
+- **Les droits** sont vérifiés par le serveur, pas seulement par les menus. Une route oubliée dans la liste
+  des droits est réservée à l'admin, et un test vérifie qu'aucune n'est oubliée.
+- **Le certificat** est signé par une autorité propre à la bibliothèque, limitée à son nom, à `localhost` et
+  aux adresses privées : même volée, elle ne pourrait pas se faire passer pour un autre site.
+- **Les dépendances** se vérifient avec `uvx pip-audit` (voir plus bas). Dernier passage le 6 novembre 2026 :
+  aucune vulnérabilité connue.
+
+### Les limites connues
+
+- **La base et les sauvegardes ne sont pas chiffrées.** Qui lit le disque (l'ordinateur, le serveur, le disque
+  externe, un dossier synchronisé dans le cloud) lit tout, sauf les codes, qui sont hachés.
+- **`localhost` est administrateur sans code.** Sur un ordinateur partagé, toute personne qui a une session
+  ouverte, et tout programme qu'elle lance, a donc tous les droits.
+- **La clé des QR codes vaut un rôle Bibliothécaire** pour qui la photographie, tant qu'elle n'est pas changée.
+  Une fois les comptes créés, coupez-la (Administration › Accès réseau).
+- **La page d'installation est en HTTP** : c'est inévitable, le certificat n'est pas encore installé à ce moment-là.
+  Installez-le depuis le Wi-Fi de la maison, puis comparez son empreinte avec celle de la page Administration.
+- **Les codes sont courts** (4 caractères au minimum). Le blocage après des essais faux les protège sur le réseau
+  de la maison, pas sur Internet.
+
+### Si…
+
+- **Un téléphone est perdu** : Administration › Comptes, coupez cet appareil. Si c'était par la clé des QR codes,
+  changez-la : tous les téléphones qui l'utilisent sont coupés.
+- **Un code a pu être vu** : donnez un nouveau code au compte. Ses appareils sont coupés.
+- **Vous voulez vérifier les dépendances**, dans le dossier du projet :
+
+  ```bash
+  uv export --frozen --format requirements-txt --no-hashes --no-emit-project -o /tmp/req.txt
+  uvx pip-audit --no-deps --disable-pip -r /tmp/req.txt
+  ```
+

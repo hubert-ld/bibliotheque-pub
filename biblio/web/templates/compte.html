@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Mon compte") }}{% endblock %}
+{% block content %}
+<div class="entete-page">
+  <div><h1>{{ _("Mon compte") }}</h1>
+    {% if compte %}<span class="doux">{{ compte.nom or compte.identifiant }} · {{ nom_role }}</span>{% endif %}</div>
+</div>
+{% if not compte %}
+  <div class="carte" style="max-width:640px"><p style="margin:0">{{ _("Cet accès n'a pas de compte : {qui}.", qui=(_("cet ordinateur") if not request.state.cle else _("une clé"))) }} {{ _("Rôle :") }} {{ nom_role }}.</p></div>
+{% else %}
+<div class="deux-colonnes">
+  <section class="carte">
+    <h2>{{ _("Mes appareils") }}</h2>
+    {% for a in appareils %}
+      <div class="ligne-appareil">
+        <div><b>{{ a.appareil }}</b>{% if a.id == session_courante %} <span class="badge ok">{{ _("cet appareil") }}</span>{% endif %}<br>
+          <small class="doux">{{ _("connecté le {date}, vu le {vu}", date=a.cree_le[:10], vu=a.vu_le[:10]) }}</small></div>
+        {% if a.id != session_courante %}
+        <form method="post" action="/compte/appareil/{{ a.id }}/couper"><button class="petit">{{ _("Déconnecter") }}</button></form>
+        {% endif %}
+      </div>
+    {% endfor %}
+    <form method="post" action="/deconnexion" style="margin-top:1rem"><button>{{ _("Se déconnecter de cet appareil") }}</button></form>
+  </section>
+  <form method="post" action="/compte/code" class="carte">
+    <h2>{{ _("Changer mon code") }}</h2>
+    <div class="champ"><label>{{ _("Code actuel") }}</label><input type="password" name="actuel" autocomplete="current-password" required></div>
+    <div class="champ"><label>{{ _("Nouveau code") }}</label><input type="password" name="nouveau" autocomplete="new-password" required minlength="4">
+      <small>{{ _("Au moins 4 caractères. Vos autres appareils devront se reconnecter.") }}</small></div>
+    <button class="principal">{{ _("Changer le code") }}</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

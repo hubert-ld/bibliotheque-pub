@@ -1,14 +1,15 @@
-"""Catalogues interrogés pour décrire un livre à partir de son ISBN.
+"""Catalogues interrogés pour décrire un livre, un disque ou un film (la liste : registre.py).
 
 Chaque source expose :
   - NAME            identifiant court stocké dans raw_responses
-  - fetch(client, isbn13) -> Fetched   (réseau, limité en débit)
-  - parse(payload, isbn13) -> dict | None   (sans réseau, rejouable)
+  - fetch(client, code) -> Fetched   (réseau, limité en débit) ; code = ISBN-13, EAN-13, ou titre d'un film
+  - parse(payload, code) -> dict | None   (sans réseau, rejouable)
 
 Le dict renvoyé par parse suit le format "notice normalisée" :
   titre, sous_titre, auteurs, auteurs_tri, editeur, collection, annee, pages,
   langue, langue_originale, resume, sujets, forme, public, couverture_url,
-  classes = {dewey, cdu, lcc, cadre_bnf}
+  classes = {dewey, cdu, lcc, cadre_bnf}, et pour les disques et les films :
+  support, ref_catalogue, pistes, duree, nb_disques
 """
 
 import re
@@ -18,7 +19,7 @@ from dataclasses import dataclass
 
 import httpx
 
-USER_AGENT = "biblio-perso/0.1 (catalogue de bibliotheque personnelle)"
+USER_AGENT = "biblio-perso/0.5 (catalogue de bibliotheque personnelle)"
 
 
 @dataclass
@@ -121,7 +122,29 @@ def empty_record() -> dict:
         "editeur": None, "collection": None, "annee": None, "pages": None,
         "langue": None, "langue_originale": None, "resume": None, "sujets": [],
         "forme": None, "public": None, "couverture_url": None, "classes": {},
+        "support": None, "ref_catalogue": None, "pistes": [], "duree": None, "nb_disques": None,
     }
+
+
+def formes_ean(ean: str) -> list[str]:
+    """Un UPC américain s'écrit avec ou sans son 0 de tête selon les catalogues : les deux formes."""
+    return [ean[1:], ean] if ean.startswith("0") else [ean]
+
+
+def support_du_format(texte: str | None) -> str | None:
+    """« CD », « 12\" Vinyl », « Cassette », « Blu-ray »… -> support de la bibliothèque."""
+    t = (texte or "").lower()
+    if "blu-ray" in t or "bluray" in t:
+        return "bluray"
+    if "dvd" in t:
+        return "dvd"
+    if "cassette" in t:
+        return "cassette"
+    if "vinyl" in t or t == "lp" or '"' in t:
+        return "vinyle"
+    if "cd" in t:
+        return "cd"
+    return None
 
 
 def openlibrary_cover(isbn13: str) -> str:

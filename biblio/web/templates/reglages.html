@@ -14,13 +14,18 @@
     <div class="champ"><label>{{ _("Votre nom (propriétaire de vos livres)") }}</label>
       <input type="text" name="proprietaire" value="{{ proprietaire }}" required>
       <small>{{ _("Vos livres portent ce nom ; ceux des catalogues d'amis fusionnés portent le leur. Le changer renomme tous vos exemplaires.") }}</small></div>
-    <div class="champ"><label>{{ _("Clé API Google Books (facultative)") }}</label>
-      <input type="password" name="google_api_key" placeholder="{{ _('clé enregistrée — laisser vide pour la garder') if google else 'AIza…' }}" autocomplete="off">
-      <small>{{ _("Ajoute résumés et couvertures quand la BnF et Open Library n'en ont pas. Clé gratuite (1 000 requêtes/jour) sur la console Google Cloud, API « Books ». Sans clé, Google Books n'est pas interrogé.") }}</small>
-      {% if google %}<label style="margin-top:.3rem"><input type="checkbox" name="effacer_google" value="1"> {{ _("Effacer la clé") }}</label>{% endif %}
-    </div>
     <button class="principal">{{ _("Enregistrer") }}</button>
   </form>
+
+  <section class="carte">
+    <h2>{{ _("Administration") }}</h2>
+    <p class="doux" style="font-size:.9rem">{{ _("Comptes et rôles, état des catalogues et leurs clés, accès réseau, journal, sauvegardes.") }}</p>
+    <p class="ligne-form">
+      <a class="bouton principal" href="/admin">{{ _("Ouvrir l'administration") }}</a>
+      <a class="bouton" href="/admin/catalogues">{{ _("État des catalogues") }}</a>
+      <a class="bouton" href="/admin/comptes">{{ _("Comptes") }}</a>
+    </p>
+  </section>
 
   <section class="carte">
     <h2>{{ _("Données") }}</h2>
@@ -28,7 +33,7 @@
       <dt>{{ _("Base") }}</dt><dd><code style="word-break:break-all">{{ db_path }}</code></dd>
       <dt>{{ _("Réponses en cache") }}</dt><dd>{{ _("{n} réponses de catalogues conservées", n=nb_raw) }}</dd>
     </dl>
-    <p><a class="bouton" href="/export.xlsx">{{ _("Exporter en Excel") }}</a> <a class="bouton" href="/export.csv">CSV</a></p>
+    <p><a class="bouton" href="/export.xlsx">{{ _("Exporter en Excel") }}</a> <a class="bouton" href="/export.csv">CSV</a> <a class="bouton" href="/echanges">{{ _("Applis de lecture") }}</a></p>
     <hr>
     <h3>{{ _("Règles de classement") }}</h3>
     <p class="doux" style="font-size:.9rem">{{ _("Les tables et règles sont dans le dossier rules/ du projet (rayons.toml, clil.toml, dewey.toml…). Après une modification :") }}</p>
@@ -44,10 +49,10 @@
         {% for l in lieux %}<option value="{{ l.id }}">{{ l.nom }} ({{ l.nb }})</option>{% endfor %}
       </select>
       <small>{{ _("Aucun lieu choisi : tous vos livres.") }}</small></div>
-    <label class="ligne-form" style="margin-bottom:.8rem"><input type="checkbox" name="masquer" value="1">
-      {{ _("Masquer les lieux (l'ami saura que vous avez le livre, pas où il est rangé)") }}</label>
-    <label class="ligne-form" style="margin-bottom:.8rem"><input type="checkbox" name="prets" value="1">
-      {{ _("Inclure mes prêts, avec le nom des emprunteurs (ils relieront vos amis dans le réseau des prêts)") }}</label>
+    <label class="case"><input type="checkbox" name="masquer" value="1">
+      <span>{{ _("Masquer les lieux (l'ami saura que vous avez le livre, pas où il est rangé)") }}</span></label>
+    <label class="case"><input type="checkbox" name="prets" value="1">
+      <span>{{ _("Inclure mes prêts, avec le nom des emprunteurs (ils relieront vos amis dans le réseau des prêts)") }}</span></label>
     <p class="doux" style="font-size:.85rem">{{ _("Jamais partagés : vos notes, vos clés et réglages.") }}</p>
     <button class="principal">{{ _("Télécharger le fichier de partage") }}</button>
   </form>

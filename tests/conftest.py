@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import httpx
 import pytest
 
 from biblio import certs, covers, db, i18n
@@ -18,6 +19,16 @@ def base_isolee(tmp_path, monkeypatch):
     monkeypatch.setattr(covers, "DOSSIER", tmp_path / "covers")
     monkeypatch.setattr(certs, "DOSSIER", tmp_path / "certs")
     i18n.utiliser("fr")                 # importer la CLI passe le fil principal en anglais
+
+
+@pytest.fixture(autouse=True)
+def sans_reseau(monkeypatch):
+    """Aucun test ne sort sur Internet : un catalogue réellement interrogé rendrait le test lent et
+    dépendant du lieu où il tourne (la CI, aux États-Unis, dépassait les délais). Toute vraie requête
+    échoue comme sans connexion. Le TestClient de FastAPI et le navigateur de Playwright ne passent pas par là."""
+    def coupe(self, request):
+        raise httpx.ConnectError(f"réseau coupé pendant les tests ({request.url.host})", request=request)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", coupe)
 
 
 @pytest.fixture

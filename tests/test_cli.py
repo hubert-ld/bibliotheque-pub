@@ -1,6 +1,10 @@
 """La CLI de bout en bout, sans réseau : chaque commande sur une base temporaire."""
 
+import csv
+import io
+
 import pytest
+from openpyxl import load_workbook
 from typer.testing import CliRunner
 
 from biblio import db, i18n, partage, services
@@ -70,15 +74,81 @@ def test_exports(conn, tmp_path):
     assert (tmp_path / "a.csv").stat().st_size and (tmp_path / "a.xlsx").stat().st_size
 
 
+@pytest.fixture
+def deux_lieux():
+    c = db.connect()
+    salon, chambre = services.creer_lieu(c, "Salon"), services.creer_lieu(c, "[Maison] - Chambre d'amis")
+    services.creer_lieu(c, "Cave")
+    services.creer_etagere(c, salon, "É1")
+    for isbn, titre, lieu in ((CHANSON, "Chanson douce", salon), (ASTERIX, "Astérix", chambre), (VARGAS, "Vargas", None)):
+        services.ajouter(c, isbn, lieu)
+        services.modifier_notice(c, isbn, {"titre": titre})
+    yield c
+    c.close()
+
+
+@pytest.mark.parametrize("format,colonne", [("goodreads", 1), ("babelio", 0), ("csv", 1)])
+def test_export_filtre_par_lieu(deux_lieux, tmp_path, format, colonne):
+    fichier = tmp_path / "a.csv"
+    def valeurs(*lieux):
+        run("export", "-f", format, "-o", fichier, *[a for l in lieux for a in ("--place", l)])
+        lignes = csv.reader(io.StringIO(fichier.read_text(encoding="utf-8-sig")), delimiter=";" if format == "csv" else ",")
+        return sorted(l[colonne] for l in list(lignes)[1:])
+    salon = CHANSON if format == "babelio" else "Chanson douce"
+    chambre = ASTERIX if format == "babelio" else "Astérix"
+    assert valeurs("Salon") == [salon]
+    assert valeurs("Salon", "[Maison] - Chambre d'amis") == sorted([salon, chambre])
+    assert len(valeurs()) == 3                        # sans filtre : tout, même les livres non localisés
+    assert valeurs("Cave") == []
+
+
+def test_export_goodreads_sans_lieux(deux_lieux, tmp_path):
+    fichier = tmp_path / "a.csv"
+    def etageres(*options):
+        run("export", "-f", "goodreads", "-o", fichier, *options)
+        return {l["Title"]: l["Bookshelves"] for l in csv.DictReader(io.StringIO(fichier.read_text(encoding="utf-8")))}
+    assert etageres()["Chanson douce"] == "Salon"
+    assert set(etageres("--no-places").values()) == {""}
+    run("export", "-f", "babelio", "--no-places", code=1)
+
+
+def test_export_excel_filtre_par_lieu(deux_lieux, tmp_path):
+    run("export", "--place", "Salon", "-o", tmp_path / "a.xlsx")
+    classeur = load_workbook(tmp_path / "a.xlsx")
+    assert classeur.sheetnames[1:] == ["Salon"]
+    assert classeur.worksheets[0].max_row == 2        # l'en-tête et le livre du salon
+
+
+def test_export_par_lieu_compte_tous_mes_exemplaires(deux_lieux, tmp_path):
+    services.ajouter(deux_lieux, CHANSON, filtrer_rebond=False)         # un second exemplaire, hors du salon
+    run("export", "-f", "goodreads", "--place", "Salon", "-o", tmp_path / "a.csv")
+    ligne = next(csv.DictReader(io.StringIO((tmp_path / "a.csv").read_text(encoding="utf-8"))))
+    assert ligne["Owned Copies"] == "2"
+
+
+def test_export_par_lieu_garde_son_propre_fichier(deux_lieux):
+    run("export", "-f", "csv", "--place", "Salon")
+    run("export", "-f", "goodreads", "--place", "[Maison] - Chambre d'amis")
+    noms = [f.name for f in (db.chemin_base(deux_lieux).parent / "exports").iterdir()]
+    assert any(n.endswith("-salon.csv") for n in noms)
+    assert any(n.endswith("-maison-chambre-d-amis-goodreads.csv") for n in noms)
+
+
+@pytest.mark.parametrize("spec", ["Grenier", "Salon/É1"])
+def test_export_lieu_refuse(deux_lieux, tmp_path, spec):
+    r = runner.invoke(app, ["export", "--place", spec, "-o", str(tmp_path / "a.xlsx")])
+    assert r.exit_code == 1 and "Traceback" not in r.output and not (tmp_path / "a.xlsx").exists()
+
+
 def test_import_compte_juste(conn, tmp_path):
     codes = tmp_path / "codes.txt"
-    codes.write_text("# commentaire\n9782253140870\n9782253140870;x\nabc\n")
+    codes.write_text("# commentaire\n9782253140870\n9782253140870;x\nabc\n", encoding="utf-8")
     sortie = run("import", codes, "--no-resolve")
     assert "2 cop(ies) imported" in sortie and "1 duplicate" in sortie and "1 error" in sortie
     assert len(services.exemplaires_de(conn, "9782253140870")) == 2
 
 
-@pytest.mark.parametrize("titre", ["Titre [/x] fermant", "L'[im]possible", "Le [sic] roman", "[VILLE] Salon"])
+@pytest.mark.parametrize("titre", ["Titre [/x] fermant", "L'[im]possible", "Le [sic] roman", "[MAISON] Salon"])
 def test_crochets_affiches_tels_quels(conn, titre):
     res = services.creer_notice_manuelle(conn, titre, "Camille [dit] Dupont")
     isbn = res["reference"]
@@ -105,9 +175,9 @@ def test_share_protege_les_autres_fichiers(conn, tmp_path):
     run("share", "-o", base, code=1)
     assert services.lieux(conn)
     autre = tmp_path / "pas-un-partage.txt"
-    autre.write_text("important")
+    autre.write_text("important", encoding="utf-8")
     run("share", "-o", autre, code=1)
-    assert autre.read_text() == "important"
+    assert autre.read_text(encoding="utf-8") == "important"
 
 
 def test_share_confirme_avant_de_remplacer_un_partage(conn, tmp_path):
@@ -252,7 +322,7 @@ def test_export_par_defaut_a_cote_de_la_base(conn, tmp_path, monkeypatch):
 
 
 def test_ports_du_telephone_reglables(conn, monkeypatch):
-    """Sur un Raspberry Pi, un autre service peut occuper 8080 et 8443 : les ports du mode téléphone se choisissent."""
+    """Sur un serveur où un autre service occupe 8080 et 8443 : les ports du mode téléphone se choisissent."""
     from biblio import certs, cli, telephone
 
     lances = []
@@ -300,7 +370,45 @@ def test_duplicates_liste_puis_retire_apres_copie(conn):
 
 
 def test_duplicates_crochets_affiches_tels_quels(conn):
-    lieu = services.creer_lieu(conn, "[VILLE] - Salon")
+    lieu = services.creer_lieu(conn, "[MAISON] - Salon")
     for _ in range(2):
         services.ajouter(conn, CHANSON, lieu, filtrer_rebond=False)
-    assert "[VILLE] - Salon" in run("duplicates")
+    assert "[MAISON] - Salon" in run("duplicates")
+
+
+def test_comptes_en_ligne_de_commande(tmp_path, monkeypatch):
+    from biblio import auth
+
+    monkeypatch.setenv("BIBLIO_DB", str(tmp_path / "cli.db"))
+    r = runner.invoke(app, ["user", "add", "marie", "--role", "admin", "--code", "1234"])
+    assert r.exit_code == 0 and "1234" in r.output
+    assert runner.invoke(app, ["user", "add", "marie"]).exit_code == 1
+    assert "marie" in runner.invoke(app, ["user", "list"]).output
+    # Le dernier admin ne peut pas être désactivé
+    assert runner.invoke(app, ["user", "disable", "marie"]).exit_code == 1
+    assert runner.invoke(app, ["user", "add", "victor"]).exit_code == 0
+    assert runner.invoke(app, ["user", "disable", "victor"]).exit_code == 0
+    r = runner.invoke(app, ["user", "reset", "marie", "--code", "5678"])
+    assert r.exit_code == 0 and "5678" in r.output
+    conn = db.connect(tmp_path / "cli.db")
+    assert auth.connecter(conn, "marie", "5678", "1.2.3.4")
+    conn.close()
+    assert runner.invoke(app, ["user", "reset", "personne"]).exit_code == 1
+
+
+def test_les_scans_comptent_pour_le_bibliothecaire(conn, tmp_path):
+    """Scan, mémoire de douchette, inventaire : au nom réglé. Une simple recherche ne compte pas."""
+    assert "alex" in run("config", "bibliothecaire", "alex")
+    avant = conn.execute("SELECT count(*) FROM scans").fetchone()[0]
+    run("scan", "-p", "Salon", "--mode", "where", input=f"{CHANSON}\n:q\n")
+    codes = tmp_path / "douchette.txt"
+    codes.write_text(f"{VARGAS}\n", encoding="utf-8")
+    run("import", str(codes), "--no-resolve")
+    run("inventory", "Salon", input=f"{CHANSON}\n:done\nn\n")
+    modes = [tuple(r) for r in conn.execute("SELECT par, mode FROM scans ORDER BY id LIMIT -1 OFFSET ?", (avant,))]
+    assert modes == [("alex", "ou"), ("alex", "ajout"), ("alex", "inventaire")]
+    ajoute = conn.execute("SELECT e.ajoute_par FROM exemplaires e JOIN notices n ON n.id = e.notice_id WHERE n.isbn13 = ? "
+                          "ORDER BY e.id DESC", (VARGAS,)).fetchone()
+    assert ajoute["ajoute_par"] == "alex"
+    run("where", CHANSON)
+    assert conn.execute("SELECT count(*) FROM scans").fetchone()[0] == avant + 3

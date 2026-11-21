@@ -3,7 +3,7 @@
 {% block title %}{{ _("Livre sans code-barre") }}{% endblock %}
 {% block content %}
 <h1>{{ _("Ajouter un livre sans code-barre") }}</h1>
-<p class="doux" style="max-width:70ch">{{ _("Un ISBN est imprimé au verso de la page de titre ? Tapez-le simplement dans le champ du poste de scan : la fiche se remplit seule. Sinon (livres anciens, autoédités), cherchez-le à la BnF ou décrivez-le ci-dessous.") }}</p>
+<p class="doux" style="max-width:70ch">{{ _("Un ISBN est imprimé dans le livre ? Tapez-le au poste de scan : la fiche se remplit seule. Sinon, cherchez à la BnF ou décrivez le livre ci-dessous.") }}</p>
 
 <div class="carte manuel-contexte">
   <div class="champ"><label for="ctx-emplacement">{{ _("Emplacement") }}</label>
@@ -28,7 +28,7 @@
   {% if deja %}
     <p class="doux" style="margin:.9rem 0 .3rem">{{ _("Déjà dans la base :") }}</p>
     <ul class="liste-simple">{% for r in deja %}
-      <li><a href="/livre/{{ r.id }}">{{ r.titre or r.reference }}</a> <span class="doux">{{ r.auteurs | auteurs }}</span>
+      <li><a href="/livre/{{ r.id }}">{{ r.titre or r.reference }}</a> <span class="doux">{{ r.auteurs | join(', ') }}</span>
         {% if not r.a_moi %}<span class="badge proprio">{{ _("chez {qui}", qui=r.proprietaire) }}</span>{% endif %}</li>
     {% endfor %}</ul>
   {% endif %}
@@ -40,7 +40,7 @@
         <li>
           <div>
             <b class="titre">{{ r.titre }}</b>{% if r.sous_titre %} <span class="doux">— {{ r.sous_titre }}</span>{% endif %}
-            <div class="doux" style="font-size:.88rem">{{ r.auteurs | auteurs }}{% if r.editeur %} · {{ r.editeur }}{% endif %}{% if r.annee %} · {{ r.annee }}{% endif %}
+            <div class="doux" style="font-size:.88rem">{{ r.auteurs | join(', ') }}{% if r.editeur %} · {{ r.editeur }}{% endif %}{% if r.annee %} · {{ r.annee }}{% endif %}
               {% if r.collection %} · <i>{{ r.collection }}</i>{% endif %}
               · {{ ("ISBN " ~ r.isbn) if r.isbn else _("sans ISBN") }}</div>
           </div>
@@ -66,11 +66,23 @@
   <input type="hidden" name="proprio" class="ctx" data-de="ctx-proprio">
   <div class="grille-champs">
     <div class="champ large"><label>{{ _("Titre *") }}</label><input type="text" name="titre" value="{{ valeurs.titre or '' }}" required></div>
+    <div class="champ large"><label>{{ _("Auteurs, séparés par ;") }}</label><input type="text" name="auteurs" value="{{ valeurs.auteurs or '' }}" placeholder="Victor Hugo"></div>
+    <div class="champ"><label>{{ _("Année") }}</label><input type="number" name="annee" value="{{ valeurs.annee or '' }}"></div>
+    <div class="champ"><label>{{ _("Support") }}</label><select name="support">
+      {% for s in SUPPORTS if s != 'inconnu' %}<option value="{{ s }}" {{ 'selected' if valeurs.support == s }}>{{ _(NOMS_SUPPORTS[s]) }}</option>{% endfor %}</select></div>
+    <div class="champ large"><label>{{ _("ISBN ou code-barres (s'il existe)") }}</label><input type="text" name="isbn" value="{{ valeurs.isbn or '' }}"></div>
+  </div>
+  {# Le reste attend derrière « Plus de champs », et s'ouvre si une valeur est déjà remplie #}
+  {% set etat = namespace(ouvert=False) %}
+  {% for k in ("sous_titre", "editeur", "collection", "pages", "forme", "public", "langue", "langue_originale", "ref_catalogue", "duree", "couverture_url", "sujets", "resume", "notes") %}
+    {% if valeurs[k] %}{% set etat.ouvert = True %}{% endif %}
+  {% endfor %}
+  <details class="edition plus-de-champs" {{ 'open' if etat.ouvert }}>
+    <summary>{{ _("Plus de champs") }}</summary>
+    <div class="grille-champs">
     <div class="champ large"><label>{{ _("Sous-titre") }}</label><input type="text" name="sous_titre" value="{{ valeurs.sous_titre or '' }}"></div>
-    <div class="champ large"><label>{{ _("Auteur(s), séparés par ;") }}</label><input type="text" name="auteurs" value="{{ valeurs.auteurs or '' }}" placeholder="Victor Hugo"></div>
     <div class="champ"><label>{{ _("Éditeur") }}</label><input type="text" name="editeur" value="{{ valeurs.editeur or '' }}"></div>
     <div class="champ"><label>{{ _("Collection") }}</label><input type="text" name="collection" value="{{ valeurs.collection or '' }}"></div>
-    <div class="champ"><label>{{ _("Année") }}</label><input type="number" name="annee" value="{{ valeurs.annee or '' }}"></div>
     <div class="champ"><label>{{ _("Pages") }}</label><input type="number" name="pages" value="{{ valeurs.pages or '' }}"></div>
     <div class="champ"><label>{{ _("Forme") }}</label><select name="forme"><option value="">?</option>
       {% for f in FORMES %}<option value="{{ f }}" {{ 'selected' if valeurs.forme == f }}>{{ _(NOMS_FORMES[f]) }}</option>{% endfor %}</select></div>
@@ -78,17 +90,19 @@
       {% for p in PUBLICS %}<option value="{{ p }}" {{ 'selected' if valeurs.public == p }}>{{ _(p) }}</option>{% endfor %}</select></div>
     <div class="champ"><label>{{ _("Langue (fre, eng…)") }}</label><input type="text" name="langue" value="{{ valeurs.langue or '' }}" placeholder="fre"></div>
     <div class="champ"><label>{{ _("Langue d'origine") }}</label><input type="text" name="langue_originale" value="{{ valeurs.langue_originale or '' }}"></div>
-    <div class="champ"><label>{{ _("ISBN (s'il existe)") }}</label><input type="text" name="isbn" value="{{ valeurs.isbn or '' }}"></div>
+    <div class="champ"><label>{{ _("Référence du label (disques)") }}</label><input type="text" name="ref_catalogue" value="{{ valeurs.ref_catalogue or '' }}"></div>
+    <div class="champ"><label>{{ _("Durée en minutes (disques, films)") }}</label><input type="number" name="duree" value="{{ valeurs.duree or '' }}"></div>
     <div class="champ"><label>{{ _("URL de couverture") }}</label><input type="text" name="couverture_url" value="{{ valeurs.couverture_url or '' }}"></div>
     <div class="champ large"><label>{{ _("Sujets (séparés par ;)") }}</label><input type="text" name="sujets" value="{{ valeurs.sujets or '' }}"></div>
     <div class="champ large"><label>{{ _("Résumé") }}</label><textarea name="resume">{{ valeurs.resume or '' }}</textarea></div>
     <div class="champ large"><label>{{ _("Note (Markdown)") }}</label><textarea name="notes" class="mono" style="min-height:4em">{{ valeurs.notes or '' }}</textarea></div>
-  </div>
+    </div>
+    <p class="doux" style="font-size:.88rem;margin-top:0">{{ _("La forme (roman, essai…) et la langue d'origine servent à calculer la cote. Avec un ISBN, les catalogues complètent les champs laissés vides.") }}</p>
+  </details>
   <div class="ligne-form">
     <button class="principal">{{ _("Ajouter") }}</button>
     <button name="encore" value="1">{{ _("Ajouter et en saisir un autre") }}</button>
   </div>
-  <p class="doux" style="font-size:.88rem;margin-bottom:0">{{ _("La forme (roman, essai…) et la langue d'origine servent à calculer la cote. Avec un ISBN, les catalogues complètent les champs laissés vides.") }}</p>
 </form>
 {% endblock %}
 {% block scripts %}

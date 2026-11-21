@@ -3,9 +3,18 @@ import pytest
 
 from biblio import resolver
 from biblio.resolver import merge
-from biblio.sources import bnf, loc, openlibrary
+from biblio.sources import bnf, googlebooks, loc, openlibrary
 
 from .conftest import charger, fixture
+
+
+def test_google_sans_la_virgule_du_catalogage(conn):
+    n = googlebooks.parse(fixture("google_hatier.json"), "9782218930232")
+    assert n["auteurs"] == ["Hatier"]                   # la réponse dit « Hatier, »
+    assert n["auteurs_tri"] == ["HATIER"]
+    notice = charger(conn, "9782218930232", google="google_hatier.json")
+    assert notice["auteurs"] == ["Hatier"]
+    assert notice["auteur_tri"] == "HATIER"             # ce que lisent les cotes : déjà sans virgule
 
 
 def test_bnf_roman():

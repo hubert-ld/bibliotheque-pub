@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from biblio import db, services
@@ -90,8 +91,8 @@ def test_catalogue_proprietaires_et_don(tmp_path, monkeypatch):
     for isbn, fichier in (("9782070196678", "bnf_chanson_douce.xml"), ("9782014001143", "bnf_asterix.xml")):
         services.ajouter(conn, isbn)
         charger(conn, isbn, bnf=fichier)
-    page = client.get("/catalogue").text                                # seul : le filtre dit comment ajouter un ami
-    assert "Mes livres" in page and "biblio merge" in page and "Tout le monde" not in page
+    page = client.get("/catalogue").text                                # seul : pas de filtre à une seule valeur
+    assert "Propriétaire" not in page and "biblio merge" not in page and "Tout le monde" not in page
 
     ex = services.ids_exemplaires(conn)[:1]
     r = client.post("/catalogue/lot", data={"ex": ex, "action": "donner", "vers": "Victor"}, follow_redirects=False)
@@ -146,6 +147,25 @@ def test_manuel_enregistre_meme_si_la_bnf_echoue(tmp_path, monkeypatch):
     page = client.post("/manuel", data={"titre": "Autre", "annee": "mille"}).text
     assert 'value="Autre"' in page and "doit être un nombre" in page
     assert module.CHAMPS_MANUEL
+    conn.close()
+
+
+def test_manuel_ajoute_un_resultat_de_la_bnf(tmp_path, monkeypatch):
+    from biblio.sources import bnf
+
+    from .conftest import fixture
+
+    conn, client = _client(tmp_path, monkeypatch)
+    resultats = bnf.lire_resultats(fixture("bnf_recherche_meaulnes.xml"))
+    monkeypatch.setattr(bnf, "rechercher", lambda *a, **kw: resultats)
+    choix = resultats[1]
+    r = client.post("/manuel/bnf", data={"ark": choix["ark"], "titre": "Meaulnes", "auteur": "Alain-Fournier"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/livre/")
+    notice_id = r.headers["location"].split("/")[2].split("?")[0]
+    assert "Meaulnes" in services.notice(conn, notice_id)["titre"]
+    par = conn.execute("SELECT ajoute_par FROM exemplaires WHERE notice_id = ?", (notice_id,)).fetchone()[0]
+    assert par == services.bibliothecaire_local(conn)                  # compté au bibliothécaire de l'ordinateur
     conn.close()
 
 
@@ -440,3 +460,83 @@ def test_formulaires_lecture_et_exemplaire(tmp_path, monkeypatch):
     assert client.get("/catalogue?lecture=lu").text.count('name="ex"') == 1
     assert "Valeur de la collection" in client.get("/stats").text
     conn.close()
+
+
+def test_adresse_de_couverture_propre_a_chaque_fiche(tmp_path, monkeypatch):
+    """Le navigateur garde une image un jour : un numéro de fiche réutilisé ne doit pas montrer l'ancienne."""
+    conn, client, *_ = _bibliotheque(tmp_path, monkeypatch)
+
+    def adresse(code):
+        res = services.ajouter(conn, code, filtrer_rebond=False)
+        conn.execute("UPDATE notices SET titre = 'Essai', couverture_url = 'https://exemple.invalid/c.jpg' WHERE id = ?", (res["notice_id"],))
+        conn.commit()
+        n = services.resume_notice(conn, res["notice_id"])
+        cherche = f'/couverture/{n["id"]}?v={n["uid"]}'
+        assert cherche in client.get(f"/livre/{n['id']}").text                      # fiche
+        assert cherche in client.get("/catalogue?tri=ajout").text                    # catalogue
+        return res, cherche
+
+    premier, avant = adresse("0888837168625")
+    services.annuler_exemplaire(conn, premier["exemplaire_id"])                       # annuler le scan libère le numéro
+    second, apres = adresse("0724384960650")
+    assert second["notice_id"] == premier["notice_id"] and apres != avant
+    conn.close()
+
+
+def test_catalogue_compte_selon_le_support(tmp_path, monkeypatch):
+    conn, client = _client(tmp_path, monkeypatch)
+    for isbn, fichier in (("9782070196678", "bnf_chanson_douce.xml"), ("9782014001143", "bnf_asterix.xml")):
+        services.ajouter(conn, isbn)
+        charger(conn, isbn, bnf=fichier)
+    page = client.get("/catalogue").text
+    assert "2 documents" in page and "2 livres" not in page
+    assert "2 livres" in client.get("/catalogue?support=livre").text
+    assert "0 disque<" in client.get("/catalogue?support=musique").text     # zéro reste au singulier en français
+    conn.close()
+
+
+def test_catalogue_sans_ajout_manuel_qui_reste_au_scan(tmp_path, monkeypatch):
+    conn, client = _client(tmp_path, monkeypatch)
+    assert 'href="/manuel"' not in client.get("/catalogue").text
+    assert 'href="/manuel"' in client.get("/scan").text
+    conn.close()
+
+
+def test_menu_lateral_selon_les_droits(tmp_path, monkeypatch):
+    conn, client = _client(tmp_path, monkeypatch)
+    menu = client.get("/catalogue").text.split('id="menu-lateral"')[1].split("</dialog>")[0]
+    for url in ("/prets", "/stats", "/reglages", "/admin", "/compte"):
+        assert f'href="{url}"' in menu
+    assert 'href="/telephone"' not in menu and "data-theme-choix" in menu and 'action="/langue"' in menu
+    conn.close()
+
+
+def test_scan_refuse_montre_les_chiffres_et_non_la_frappe_azerty(tmp_path, monkeypatch):
+    _, client, *_ = _bibliotheque(tmp_path, monkeypatch)
+    res = client.post("/api/scan", json={"mode": "ajout", "code": "&é\"é\"(àçé'è("}).json()
+    assert res["ok"] is False and res["code"] == "123235092475"
+    assert "clé de contrôle" in res["message"]
+
+
+def test_adresse_des_scripts_suit_leur_contenu(tmp_path, monkeypatch):
+    _, client, *_ = _bibliotheque(tmp_path, monkeypatch)
+    from biblio.web.app import templates
+    assert f"/static/scan.js?v={templates.env.globals['empreinte_statique']}" in client.get("/scan").text
+
+
+def test_poste_de_scan_propose_trois_saisies_et_le_mode_poche(tmp_path, monkeypatch):
+    _, client, *_ = _bibliotheque(tmp_path, monkeypatch)
+    page = client.get("/scan").text
+    for choix in ("douchette", "camera", "main"):
+        assert f'data-saisie="{choix}"' in page
+    assert 'type="submit"' in page               # l'envoi implicite par Entrée ne part pas sur iPhone
+    assert 'id="poche"' in page and 'id="poche-ouvrir"' in page
+
+
+@pytest.mark.parametrize("mode", ["ajout", "deplacement", "ou"])
+def test_code_interne_de_magasin_refuse_sans_panne(tmp_path, monkeypatch, mode):
+    # Préfixe 29 mais pas une de nos étiquettes : une panne ici bloquait toute la file du téléphone
+    _, client, *_ = _bibliotheque(tmp_path, monkeypatch)
+    res = client.post("/api/scan", json={"mode": mode, "code": "2900000330740"})
+    assert res.status_code == 200
+    assert res.json()["ok"] is False and "code interne" in res.json()["message"]

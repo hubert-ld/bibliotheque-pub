@@ -1,0 +1,14 @@
+/data/
+/.venv/
+/tests/
+/.pytest_cache/
+/.claude/
+__pycache__/
+*.pyc
+.DS_Store
+._*
+# Listes de livres : elles décrivent une bibliothèque réelle, et /opt/biblio/app est lisible par tous sur le serveur
+*.csv
+*.tsv
+*.xlsx
+*.xls

@@ -6,6 +6,7 @@
 {% set noms_publics = {"adulte": _("adulte"), "ado": _("ado"), "jeunesse": _("jeunesse")} %}
 {% set noms_lectures = {"a_lire": _("À lire"), "en_cours": _("En cours"), "lu": _("Lu"), "abandonne": _("Abandonné")} %}
 {% set noms_etats = {"neuf": _("Neuf"), "tres_bon": _("Très bon"), "bon": _("Bon"), "moyen": _("Moyen"), "abime": _("Abîmé")} %}
+{% set musique = n.support in MUSIQUE %}{% set film = n.support in FILMS %}
 <p class="no-print" style="margin-top:0"><a href="javascript:history.back()">{{ _("← Retour") }}</a></p>
 <div class="fiche">
   <aside>
@@ -14,16 +15,18 @@
       <h3>{{ _("Exemplaires") if n.exemplaires|length > 1 else _("Exemplaire") }}</h3>
       {% for e in n.exemplaires %}
         <div class="exemplaire">
-          <div><b>{{ e.emplacement }}</b><br><small>{{ _("n° {id} · ajouté le {date}", id=e.id, date=e.ajoute_le[:10]) }}
+          <div>{% if not (e.a_moi and peut("scanner")) %}<b>{{ e.emplacement }}</b><br>{% endif %}<small>{{ _("n° {id} · ajouté le {date}", id=e.id, date=e.ajoute_le[:10]) }}
             · {{ _("à {qui}", qui=e.proprietaire) }}</small></div>
-          {% if e.pret %}<span class="badge doublon">{{ _("prêté à {qui} depuis le {date}", qui=e.pret.emprunteur, date=e.pret.date_pret[:10]) }}</span>{% endif %}
-          {% if e.a_moi %}
+          {% if e.pret %}<span class="badge doublon">{{ _("prêté à {qui} depuis le {date}", qui=e.pret.emprunteur, date=e.pret.date_pret[:10]) if peut("personnel") else _("prêté") }}</span>{% endif %}
+          {% if e.a_moi and peut("scanner") %}
           <form method="post" action="/exemplaire/{{ e.id }}/deplacer" class="ligne-form">
             <input type="hidden" name="suite" value="/livre/{{ n.id }}">
             <select name="emplacement" style="flex:1;min-width:0" onchange="this.form.submit()" aria-label="{{ _('Déplacer vers') }}">
-              {{ options_emplacement(lieux, (e.lieu_id ~ ':' ~ (e.etagere_id or '')) if e.lieu_id else '', vide=_("Non localisé")) }}
+              {{ options_emplacement(lieux, (e.lieu_id ~ ':' ~ (e.etagere_id or '') ~ ((':' ~ e.rangee_id) if e.rangee_id else '')) if e.lieu_id else '', vide=_("Non localisé")) }}
             </select>
           </form>
+          {% endif %}
+          {% if e.a_moi and peut("modifier") %}
           {% if e.pret %}
             <form method="post" action="/exemplaire/{{ e.id }}/rendre"><input type="hidden" name="suite" value="/livre/{{ n.id }}">
               <button class="petit">{{ _("Marquer comme rendu") }}</button></form>
@@ -36,7 +39,7 @@
                 <button class="petit">{{ _("Prêter") }}</button></form></details>
           {% endif %}
           {% endif %}
-          {% if e.a_moi %}
+          {% if e.a_moi and peut("personnel") %}
           <details class="edition"><summary>{{ _("Détails de l'exemplaire…") }}</summary>
             <form method="post" action="/exemplaire/{{ e.id }}/details" class="details-exemplaire">
               <input type="hidden" name="suite" value="/livre/{{ n.id }}">
@@ -53,6 +56,7 @@
             <small class="doux">{{ _("Tout est facultatif, et rien de cela n'est jamais partagé.") }}</small>
           </details>
           {% endif %}
+          {% if peut("modifier") %}
           <details class="edition"><summary>{{ _("Donner…") if e.a_moi else _("Changer de propriétaire…") }}</summary>
             <form method="post" action="/exemplaire/{{ e.id }}/donner" class="ligne-form"
                   onsubmit='return confirm({{ _("Changer le propriétaire de ce livre ? C'est un don, pas un prêt.") | tojson }})'>
@@ -64,12 +68,15 @@
           </details>
           <form method="post" action="/exemplaire/{{ e.id }}/supprimer" onsubmit='return confirm({{ _("Retirer cet exemplaire de la collection ?") | tojson }})'>
             <button class="lien danger" style="font-size:.85rem">{{ _("Retirer de la collection") }}</button></form>
+          {% endif %}
         </div>
       {% endfor %}
+      {% if peut("scanner") %}
       <details class="edition" style="margin-top:.75rem"><summary>{{ _("+ Ajouter un exemplaire") }}</summary>
         <form method="post" action="/livre/{{ n.id }}/exemplaire" class="ligne-form">
           <select name="emplacement" style="flex:1;min-width:0">{{ options_emplacement(lieux, vide=_("Non localisé")) }}</select>
           <button class="petit">{{ _("Ajouter") }}</button></form></details>
+      {% endif %}
       <datalist id="liste-proprietaires">{% for o in proprietaires %}<option value="{{ o.nom }}">{% endfor %}</datalist>
       <datalist id="liste-personnes">{% for nom in personnes %}<option value="{{ nom }}">{% endfor %}</datalist>
     </div>
@@ -80,26 +87,36 @@
       <div class="flash {{ 'err' if n.statut != 'en_attente' else 'ok' }}">
         {% if n.statut == 'en_attente' %}{{ _("Recherche dans les catalogues en cours… rechargez dans quelques secondes.") }}
         {% elif n.statut == 'erreur' %}{{ _("Les catalogues n'ont pas pu être joints. Réessayez plus tard, ou complétez la fiche ci-dessous.") }}
-        {% else %}{{ _("Aucun catalogue ne connaît cet ISBN. Complétez la fiche à la main ci-dessous.") }}{% endif %}
+        {% else %}{{ _("Aucun catalogue ne connaît ce code. Complétez la fiche à la main ci-dessous.") }}{% endif %}
       </div>
     {% endif %}
     <h1>{{ n.titre or _('Titre inconnu') }}</h1>
     {% if n.sous_titre %}<div class="sous-titre">{{ n.sous_titre }}</div>{% endif %}
-    <div class="auteurs">{% for a in n.auteurs %}<a href="/catalogue?q={{ a | urlencode }}">{{ a }}</a>{{ ', ' if not loop.last }}{% else %}<span class="doux">{{ _("Auteur inconnu") }}</span>{% endfor %}</div>
+    <div class="auteurs">{% for a in n.auteurs %}<a href="/catalogue?q={{ a | urlencode }}">{{ a }}</a>{{ ', ' if not loop.last }}{% else %}<span class="doux">{{ _("Artiste inconnu") if musique else _("Réalisateur inconnu") if film else _("Auteur inconnu") }}</span>{% endfor %}</div>
 
     <dl class="infos">
-      {% if n.editeur %}<dt>{{ _("Éditeur") }}</dt><dd><a href="/catalogue?q={{ n.editeur | urlencode }}">{{ n.editeur }}</a>{% if n.annee %}, {{ n.annee }}{% endif %}</dd>{% endif %}
+      {% if n.support != 'livre' %}<dt>{{ _("Support") }}</dt><dd>{{ _(NOMS_SUPPORTS[n.support]) }}{% if n.nb_disques and n.nb_disques > 1 %} × {{ n.nb_disques }}{% endif %}</dd>{% endif %}
+      {% if n.editeur %}<dt>{{ _("Label") if musique else _("Studio") if film else _("Éditeur") }}</dt><dd><a href="/catalogue?q={{ n.editeur | urlencode }}">{{ n.editeur }}</a>{% if n.annee %}, {{ n.annee }}{% endif %}</dd>{% endif %}
       {% if n.collection %}<dt>{{ _("Collection") }}</dt><dd>{{ n.collection | replace(' | ', ' · ') }}</dd>{% endif %}
+      {% if n.ref_catalogue %}<dt>{{ _("Référence du label") }}</dt><dd><code>{{ n.ref_catalogue }}</code></dd>{% endif %}
+      {% if n.duree %}<dt>{{ _("Durée") }}</dt><dd>{{ _("{n} min", n=n.duree) }}</dd>{% endif %}
       {% if n.pages %}<dt>{{ _("Pages") }}</dt><dd>{{ n.pages }}</dd>{% endif %}
-      <dt>{{ _("Forme · public") }}</dt><dd>{{ noms_formes.get(n.forme, n.forme or '?') }} · {{ noms_publics.get(n.public, n.public or '?') }}</dd>
-      <dt>{{ _("Langue") }}</dt><dd>{{ n.langue or '?' }}{% if n.langue_originale and n.langue_originale != n.langue %} {{ _("(traduit de : {langue})", langue=n.langue_originale) }}{% endif %}</dd>
-      {% if n.isbn13 %}<dt>ISBN</dt><dd><code>{{ n.isbn13 }}</code></dd>{% else %}<dt>{{ _("Référence") }}</dt><dd><code>{{ n.reference }}</code> <small class="doux">{{ _("à taper au poste de scan : ce livre n'a pas d'ISBN") }}</small></dd>{% endif %}
+      {% if n.support == 'livre' %}<dt>{{ _("Forme · public") }}</dt><dd>{{ noms_formes.get(n.forme, n.forme or '?') }} · {{ noms_publics.get(n.public, n.public or '?') }}</dd>{% endif %}
+      {% if n.langue or n.support == 'livre' %}<dt>{{ _("Langue") }}</dt><dd>{{ n.langue or '?' }}{% if n.langue_originale and n.langue_originale != n.langue %} {{ _("(traduit de : {langue})", langue=n.langue_originale) }}{% endif %}</dd>{% endif %}
+      {% if n.isbn13 %}<dt>ISBN</dt><dd><code>{{ n.isbn13 }}</code></dd>{% elif n.ean %}<dt>EAN</dt><dd><code>{{ n.ean }}</code></dd>{% else %}<dt>{{ _("Référence") }}</dt><dd><code>{{ n.reference }}</code> <small class="doux">{{ _("à taper au poste de scan : ce livre n'a pas d'ISBN") }}</small></dd>{% endif %}
     </dl>
+    {% if n.pistes %}
+    <details class="carte pistes" open><summary><h2 style="display:inline">{{ _("Pistes") }}</h2> <span class="doux">{{ n.pistes | length }}</span></summary>
+      <ol>{% for p in n.pistes %}<li><span>{{ p.titre }}</span>{% if p.duree %}<small class="doux">{{ "%d:%02d" | format(p.duree // 60, p.duree % 60) }}</small>{% endif %}</li>{% endfor %}</ol>
+    </details>
+    {% endif %}
     {% if n.sujets %}<div class="sujets" style="margin-bottom:1rem">{% for s in n.sujets[:20] %}<a href="/catalogue?q={{ s | urlencode }}">{{ s }}</a>{% endfor %}</div>{% endif %}
-    {% if n.resume %}<p class="resume">{{ n.resume }}</p>{% endif %}
+    {% if n.resume %}<div class="bloc-resume"><p class="resume">{{ n.resume }}</p>
+      <button type="button" class="lien seul-telephone" id="resume-suite" hidden>{{ _("Lire la suite") }}</button></div>{% endif %}
 
+    {% if peut("personnel") %}
     <div class="carte lecture" id="lecture">
-      <h2>{{ _("Lecture") }}</h2>
+      <h2>{{ _("Écoute") if musique else _("Visionnage") if film else _("Lecture") }}</h2>
       <form method="post" action="/livre/{{ n.id }}/lecture" class="grille-champs">
         <div class="champ"><label>{{ _("Avancement") }}</label><select name="lecture"><option value=""></option>
           {% for v in LECTURES %}<option value="{{ v }}" {{ 'selected' if n.lecture == v }}>{{ noms_lectures[v] }}</option>{% endfor %}</select></div>
@@ -130,19 +147,21 @@
         </div>
       </form>
     </div>
+    {% endif %}
 
     <div class="carte" style="margin-top:1.5rem">
       <h2>{{ _("Cotes") }}</h2>
+      {% macro lignes_cotes(liste) %}
       <table class="table cotes empilee" style="border:0">
         <tbody>
-        {% for c in n.classifications %}
+        {% for c in liste %}
           <tr>
             <td>{{ _(c.nom) }}{% if c.systeme == systeme %} <span class="badge">{{ _("affiché") }}</span>{% endif %}</td>
             <td>{{ cote(c.cote) }}</td>
             <td class="ligne">{{ c.libelle or '' }}
               {% if c.origine %}<div class="origine {{ c.origine }}">{{ {'source': _('fourni par le catalogue'), 'deduit': _('déduit automatiquement'), 'manuel': _('fixé à la main')}[c.origine] }}</div>{% endif %}</td>
             <td class="ligne" style="width:1%">
-              <details class="edition"><summary>{{ _("modifier") }}</summary>
+              {% if peut("modifier") %}<details class="edition"><summary>{{ _("modifier") }}</summary>
                 <form method="post" action="/livre/{{ n.id }}/classer" class="ligne-form" style="min-width:230px">
                   <input type="hidden" name="systeme" value="{{ c.systeme }}">
                   {% if c.systeme in options %}
@@ -155,14 +174,20 @@
                   <button class="petit">OK</button>
                 </form>
                 {% if c.origine == 'manuel' %}<small>{{ _("Vide = revenir au calcul automatique") }}</small>{% endif %}
-              </details>
+              </details>{% endif %}
             </td>
           </tr>
         {% endfor %}
         </tbody>
       </table>
+      {% endmacro %}
+      {{ lignes_cotes(n.classifications | selectattr("systeme", "equalto", systeme) | list) }}
+      <details class="edition" style="margin-top:.5rem"><summary>{{ _("Autres classements") }}</summary>
+        {{ lignes_cotes(n.classifications | rejectattr("systeme", "equalto", systeme) | list) }}
+      </details>
     </div>
 
+    {% if peut("modifier") %}
     <div class="carte">
       <details class="edition" {{ 'open' if n.statut in ('introuvable', 'erreur') }}>
         <summary><h2 style="display:inline;color:var(--encre)">{{ _("Corriger la fiche") }}</h2> <span>▾</span></summary>
@@ -171,7 +196,14 @@
           <div class="grille-champs">
             <div class="champ large"><label>{{ _("Titre") }}</label><input type="text" name="titre" value="{{ n.titre or '' }}"></div>
             <div class="champ large"><label>{{ _("Sous-titre") }}</label><input type="text" name="sous_titre" value="{{ n.sous_titre or '' }}"></div>
-            <div class="champ large"><label>{{ _("Auteurs (séparés par ;)") }}</label><input type="text" name="auteurs" value="{{ n.auteurs | join(' ; ') }}"></div>
+            <div class="champ"><label>{{ _("Support") }}</label><select name="support">
+              {% for s in SUPPORTS %}<option value="{{ s }}" {{ 'selected' if n.support == s }}>{{ _(NOMS_SUPPORTS[s]) }}</option>{% endfor %}</select></div>
+            {% if n.support != 'livre' %}
+            <div class="champ"><label>{{ _("Référence du label") }}</label><input type="text" name="ref_catalogue" value="{{ n.ref_catalogue or '' }}"></div>
+            <div class="champ"><label>{{ _("Durée (min)") }}</label><input type="number" name="duree" value="{{ n.duree or '' }}"></div>
+            <div class="champ"><label>{{ _("Nombre de disques") }}</label><input type="number" name="nb_disques" value="{{ n.nb_disques or '' }}"></div>
+            {% endif %}
+            <div class="champ large"><label>{{ _("Artistes ou réalisateurs (séparés par ;)") if n.support != 'livre' else _("Auteurs (séparés par ;)") }}</label><input type="text" name="auteurs" value="{{ n.auteurs | join(' ; ') }}"></div>
             <div class="champ"><label>{{ _("Éditeur") }}</label><input type="text" name="editeur" value="{{ n.editeur or '' }}"></div>
             <div class="champ"><label>{{ _("Collection") }}</label><input type="text" name="collection" value="{{ n.collection or '' }}"></div>
             <div class="champ"><label>{{ _("Année") }}</label><input type="number" name="annee" value="{{ n.annee or '' }}"></div>
@@ -199,6 +231,7 @@
         {% endif %}
       </details>
     </div>
+    {% endif %}
 
     <div class="carte">
       <h3>{{ _("Sources") }}</h3>
@@ -206,7 +239,7 @@
         {% for r in n.raw %}<span class="badge {{ 'ok' if r.statut == 'ok' else ('erreur' if r.statut == 'erreur' else '') }}">{{ r.source }} : {{ r.statut }}</span> {% else %}{{ _("Aucun catalogue interrogé.") }}{% endfor %}
         {% for s, url in (n.classes_source.liens or {}).items() %} · <a href="{{ url }}" target="_blank" rel="noopener">{{ _("voir sur {source}", source=s) }}</a>{% endfor %}
       </p>
-      {% if n.isbn13 %}
+      {% if (n.isbn13 or n.ean or film) and peut("modifier") %}
       <form method="post" action="/livre/{{ n.id }}/relancer"><button class="petit">{{ _("Réinterroger les catalogues") }}</button></form>
       {% endif %}
     </div>
@@ -215,9 +248,19 @@
 {% endblock %}
 {% block scripts %}
 <script>
+  // Résumé replié sur téléphone : « Lire la suite » n'apparaît que s'il dépasse
+  (function () {
+    const suite = document.getElementById("resume-suite");
+    if (!suite) return;
+    const resume = suite.previousElementSibling;
+    suite.hidden = resume.scrollHeight <= resume.clientHeight;
+    suite.addEventListener("click", () => { resume.classList.add("entier"); suite.hidden = true; });
+  })();
+
   // Note : affichée mise en forme, modifiée sur place
   (function () {
     const carte = document.getElementById("note");
+    if (!carte) return;
     const form = carte.querySelector("[data-note-form]"), rendu = carte.querySelector("[data-note-rendu]");
     const basculer = (edition) => {
       form.hidden = !edition; rendu.hidden = edition;

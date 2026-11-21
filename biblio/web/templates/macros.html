@@ -1,7 +1,8 @@
 {% macro couv(n, grande=False) -%}
 <span class="couv{{ ' grande' if grande }}" data-titre="{{ n.titre or '?' }}">
   {%- if n.couverture_url -%}
-    <img src="/couverture/{{ n.id }}" alt="" loading="lazy" onerror="couvertureAbsente(this)" onload="couvertureChargee(this)">
+    {# Le navigateur garde l'image un jour, et un numéro de fiche supprimée peut resservir : uid la distingue #}
+    <img src="/couverture/{{ n.id }}?v={{ n.uid }}" alt="" loading="lazy" onerror="couvertureAbsente(this)" onload="couvertureChargee(this)">
   {%- else -%}
     <span class="initiales">{{ (n.titre or '?')[:2] | upper }}</span>
   {%- endif -%}
@@ -18,6 +19,9 @@
   <option value="{{ l.id }}:" {{ 'selected' if choisi == l.id ~ ':' }}>{{ l.nom }}</option>
   {%- for e in l.etageres %}
   <option value="{{ l.id }}:{{ e.id }}" {{ 'selected' if choisi == l.id ~ ':' ~ e.id }}>&nbsp;&nbsp;&nbsp;{{ l.nom }} › {{ e.nom }}</option>
+    {%- for r in e.rangees %}
+  <option value="{{ l.id }}:{{ e.id }}:{{ r.id }}" {{ 'selected' if choisi == l.id ~ ':' ~ e.id ~ ':' ~ r.id }}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{{ l.nom }} › {{ e.nom }} › {{ r.nom }}</option>
+    {%- endfor %}
   {%- endfor %}
 {%- endfor %}
 {%- endmacro %}

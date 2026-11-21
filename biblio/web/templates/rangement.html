@@ -4,7 +4,7 @@
 {% block content %}
 <div class="entete-page">
   <div><h1>{{ _("{lieu} — ordre de rangement", lieu=lieu.nom) }}</h1>
-    <span class="doux">{{ _("{n} livre(s), classés selon : {systeme}", n=rows|length, systeme=_(SYSTEMES[systeme])) }}</span></div>
+    <span class="doux">{{ pluriel(rows|length, "{n} livre, classé selon : {systeme}", "{n} livres, classés selon : {systeme}", systeme=_(SYSTEMES[systeme])) }}</span></div>
   <form class="ligne-form no-print" method="get">
     <select name="etagere" onchange="this.form.submit()">
       <option value="">{{ _("Toutes les étagères") }}</option>
@@ -25,7 +25,7 @@
       {% for r in groupe.list %}
         <tr><td class="doux">{{ loop.index }}</td><td>{{ cote(r.cote) }}</td>
           <td><a href="/livre/{{ r.notice_id }}">{{ r.titre or r.reference }}</a></td>
-          <td>{{ r.auteurs | auteurs }}</td><td class="doux" style="font-size:.85rem">{{ r.libelle or '' }}</td></tr>
+          <td>{{ r.auteurs | join(', ') }}</td><td class="doux" style="font-size:.85rem">{{ r.libelle or '' }}</td></tr>
       {% endfor %}
       </tbody>
     </table>

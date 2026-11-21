@@ -12,15 +12,23 @@ RACINE = Path(__file__).resolve().parent.parent / "biblio"
 
 
 def cles_utilisees() -> dict[str, str]:
-    """Toutes les phrases passées à tr()/_() dans le code, les gabarits et les scripts."""
+    """Toutes les phrases passées à tr()/_()/pluriel() dans le code, les gabarits et les scripts."""
+    pluriels = r'\bpluriel\(\s*[^",]+,\s*"((?:[^"\\]|\\.)*)",\s*"((?:[^"\\]|\\.)*)"'
     cles = {}
     for f in RACINE.rglob("*.py"):
-        for c in re.findall(r'\btr\(\s*"((?:[^"\\]|\\.)*)"', f.read_text()):
+        texte = f.read_text(encoding="utf-8")
+        for c in re.findall(r'\btr\(\s*"((?:[^"\\]|\\.)*)"', texte):
             cles.setdefault(c, f.name)
+        for formes in re.findall(pluriels, texte):
+            for c in formes:
+                cles.setdefault(c, f.name)
     for f in (RACINE / "web" / "templates").glob("*.html"):
-        texte = f.read_text()
+        texte = f.read_text(encoding="utf-8")
         for c in re.findall(r'\b_\(\s*"((?:[^"\\]|\\.)*)"', texte) + re.findall(r"\b_\(\s*'((?:[^'\\]|\\.)*)'", texte):
             cles.setdefault(c, f.name)
+        for formes in re.findall(pluriels, texte):
+            for c in formes:
+                cles.setdefault(c, f.name)
     for c in i18n.cles_js():
         cles.setdefault(c, "js")
     return cles
@@ -35,10 +43,16 @@ def test_noms_dynamiques_traduits():
     from biblio.export import COLONNES
     from biblio.web.app import STATUTS
 
-    from biblio.services import NOMS_FORMES, NOMS_LANGUES
+    from biblio import auth, sante
+    from biblio.services import NOMS_FORMES, NOMS_LANGUES, NOMS_SUPPORTS
+    from biblio.sources import registre
+    from biblio.web import admin
 
     for nom in [*SYSTEMES.values(), *STATUTS.values(), *(titre for _, titre in COLONNES),
-                *NOMS_LANGUES.values(), *NOMS_FORMES.values(), "Inconnue", "Non précisée"]:
+                *NOMS_LANGUES.values(), *NOMS_FORMES.values(), "Inconnue", "Non précisée",
+                *NOMS_SUPPORTS.values(), *auth.NOMS_ROLES.values(), *sante.NOMS_ETATS.values(),
+                *(titre for _, titre in admin.ONGLETS), *admin.NOMS_ACTIONS.values(),
+                *(c.aide for c in registre.CATALOGUES if c.aide), "o", "Ko", "Mo", "Go", "To"]:
         assert nom in EN, nom
 
 
@@ -77,7 +91,8 @@ def test_interface_en_francais_par_defaut(client):
 
 
 @pytest.mark.parametrize("url", ["/scan", "/catalogue", "/lieux", "/a-traiter", "/prets", "/stats",
-                                 "/reglages", "/manuel", "/telephone", "/lieux/1/rangement"])
+                                 "/reglages", "/manuel", "/telephone", "/lieux/1/rangement", "/lieux/etiquettes", "/compte",
+                                 "/admin/sante", "/admin/comptes", "/admin/catalogues", "/admin/acces", "/admin/journal", "/admin/systeme"])
 def test_interface_en_anglais(client, url):
     r = client.post("/langue", data={"langue": "en", "suite": url}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == url
@@ -97,3 +112,12 @@ def test_scripts_et_messages_en_anglais(client):
     assert "ISBN" in res["message"] and "caractères" not in res["message"]
     r = client.post("/catalogue/lot", data={"action": "deplacer"}, follow_redirects=False)
     assert "no+book+selected" in r.headers["location"]
+
+
+def test_pluriel_selon_la_langue():
+    un, plusieurs = "{n} livre", "{n} livres"
+    i18n.utiliser("fr")
+    assert [i18n.pluriel(n, un, plusieurs) for n in (0, 1, 2)] == ["0 livre", "1 livre", "2 livres"]
+    i18n.utiliser("en")
+    assert [i18n.pluriel(n, un, plusieurs) for n in (0, 1, 2)] == ["0 books", "1 book", "2 books"]
+    i18n.utiliser("fr")

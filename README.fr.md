@@ -2,10 +2,12 @@
 
 [English](README.md) · **Français**
 
-Logiciel de bibliothèque personnelle : on scanne les livres à la douchette, ils sont
-décrits automatiquement, localisés (Salon › Étagère 2…) et cotés dans sept systèmes
-de classement. Appli web locale pour scanner et consulter, CLI pour tout le reste.
-Conçu pour macOS, Linux et Windows (testé sur macOS ; Linux et Windows pas encore essayés).
+Logiciel de bibliothèque personnelle : on scanne les livres, les disques et les films à la
+douchette, ils sont décrits automatiquement, localisés (Salon › Étagère 2 › Devant…) et cotés
+dans sept systèmes de classement. Appli web pour scanner et consulter, avec comptes et rôles
+pour la maison, CLI pour tout le reste.
+Conçu pour macOS, Linux et Windows : utilisé chaque jour sur macOS et sur un petit serveur Linux ; tous les tests
+passent aussi sous Linux et Windows à chaque envoi, mais l'usage réel sous Windows n'a pas encore été essayé.
 
 Tout est détaillé dans la **[documentation complète](DOCUMENTATION.fr.md)**.
 
@@ -77,10 +79,11 @@ Rouvrez le terminal, puis dans le dossier du projet :
 Pour `biblio sql` : `winget install SQLite.SQLite` (facultatif). Au premier `serve --phone`,
 le pare-feu Windows Defender demande d'autoriser Python : cochez **Réseaux privés**.
 
-### Raspberry Pi (serveur permanent)
+### Serveur Linux permanent
 
-Service systemd, base hors du partage réseau, copies quotidiennes sur disque externe, ports
-choisis pour ne pas gêner les autres services : voir [deploy/README.fr.md](deploy/README.fr.md).
+Pour scanner au téléphone sans allumer l'ordinateur : service systemd sur n'importe quel serveur Linux
+(mini-PC, NAS, nano-ordinateur…), copies quotidiennes archivées, synchronisation avec votre ordinateur :
+voir [deploy/README.fr.md](deploy/README.fr.md).
 
 ### Sur tous les systèmes
 
@@ -95,23 +98,52 @@ choisis pour ne pas gêner les autres services : voir [deploy/README.fr.md](depl
   (macOS), `%LOCALAPPDATA%\biblio` (Windows), `~/.local/share/biblio` (Linux).
 
 Premiers pas :
-1. **Lieux** : créez vos bibliothèques (Salon, Chambre…) et leurs étagères.
+1. **Lieux** : créez vos bibliothèques (Salon, Chambre…), leurs étagères, et si besoin leurs rangées.
 2. **Scanner** : choisissez le lieu et l'étagère, puis scannez à la chaîne.
 3. **À traiter** : complétez les rares livres introuvables.
 4. **Catalogue** : cochez des livres (Maj+clic pour une plage, ou « sélectionner tous les résultats »
    d'une recherche) pour les ranger d'un coup, les donner ou les retirer. Filtres utiles : lieu
    « Non localisés », et « Ajoutés du … au … » (lien « aujourd'hui »).
 
-**Thème** : en haut à droite, à côté de **FR · EN**, trois petites icônes : automatique (suit le
+**Thème** : en haut à droite, à côté de **FR · EN** (dans le menu ☰ sur téléphone), trois petites icônes : automatique (suit le
 réglage clair/sombre de l'appareil), clair, sombre. Le choix est propre à chaque appareil :
 l'ordinateur et le téléphone peuvent avoir chacun le leur.
+
+## Disques et films
+
+CD, vinyles, cassettes, DVD et Blu-ray se scannent comme des livres. Les pistes, le label et la pochette
+viennent de MusicBrainz, Discogs, Deezer et iTunes. Les films demandent une clé gratuite TMDb ou OMDb
+(Administration › Catalogues) ; leur identification au code-barres reste la moins fiable : corrigez le titre
+sur la fiche, puis réinterrogez les catalogues. [Détails](DOCUMENTATION.fr.md#22-disques-et-films).
+
+## Comptes et administration
+
+**Administration › Comptes** : donnez à chacun un identifiant et un code, qu'il tape **une fois par appareil**.
+L'appareil reste connecté jusqu'à ce que vous le coupiez.
+
+| | Lecteur | Contributeur | Bibliothécaire | Admin |
+|---|---|---|---|---|
+| Catalogue, fiches, « où est-il ? » | oui | oui | oui | oui |
+| Scanner, ranger, inventaire | | oui | oui | oui |
+| Modifier, lieux, prêts, exports ; voir notes, prix, emprunteurs, statistiques | | | oui | oui |
+| Réglages, Téléphone, partage, administration | | | | oui |
+
+La page **Administration** réunit la santé du serveur, les comptes et leurs appareils, l'état de chaque catalogue
+et ses clés, les clés réseau, le journal et les sauvegardes. Les certificats, la clé des QR codes et la clé admin
+continuent de fonctionner ; `localhost` reste administrateur. Lecture et notes sont communes à la maison.
+[Détails](DOCUMENTATION.fr.md#23-comptes-rôles-et-connexion).
+
+## Rangées et étiquettes
+
+Une étagère peut avoir des rangées (Lieux › ⋯), facultatives. **Lieux › Étiquettes à imprimer** donne un code-barres
+par lieu, étagère et rangée : le scanner choisit l'emplacement, puis on scanne les livres.
 
 ## Livres sans code-barre
 
 - **Un ISBN est imprimé** (souvent au verso de la page de titre, pour les livres des années 1970-2000) :
-  tapez-le dans le champ du poste de scan, comme si la douchette l'avait lu.
-- **Pas d'ISBN** (livres anciens, autoédités) : lien « Pas de code-barre ? » sous le champ de scan, ou
-  Catalogue › « + Livre sans code-barre ». La page propose :
+  choisissez « À la main » sur le poste de scan et tapez-le, comme si la douchette l'avait lu.
+- **Pas d'ISBN** (livres anciens, autoédités) : bouton « Pas de code-barre ? », sous « À la main » sur le poste de scan.
+  La page propose :
   1. une **recherche à la BnF** par titre, auteur et année. Choisir un résultat crée une fiche complète et
      cotée, sans autre requête ;
   2. une **saisie complète à la main** (tous les champs), qui ne dépend jamais de la BnF : si elle ne
@@ -150,7 +182,7 @@ Chaque exemplaire a un **propriétaire**. Vos livres portent votre nom (Réglage
   Recevoir un livre se fait de la même façon (« Changer de propriétaire… » › votre nom) : il arrive
   non localisé, prêt à être rangé. Pour un prêt, rien ne change : « Prêter… ».
 - **Le catalogue d'un ami** : il vous envoie un fichier, vous l'importez, puis le filtre **Propriétaire**
-  du catalogue (Mes livres / Victor / Tout le monde) permet de voir s'il a le livre que vous cherchez,
+  du catalogue (À moi / Victor / Tout le monde) permet de voir s'il a le livre que vous cherchez,
   et où (« chez Victor — Salon › É2 »), s'il n'a pas masqué ses lieux. Par défaut, le catalogue, les
   statistiques et « À traiter » ne montrent que vos livres.
 
@@ -224,9 +256,10 @@ doublon, `--dry-run` montre ce qui changerait, et la base est copiée avant (`da
 
 ## La douchette
 
-Elle se comporte comme un clavier : elle tape le code puis Entrée. Rien à installer.
-- Le champ de scan garde le focus. Bip aigu = ajouté, double bip = déjà possédé ou mal rangé, bip grave = erreur.
-- **Douchette en QWERTY sur Mac AZERTY** : les chiffres arrivent en `çè&é…` ; c'est corrigé automatiquement.
+Elle se comporte comme un clavier : elle tape le code puis Entrée. Rien à installer. Choisissez **Douchette** en haut du poste de scan (les autres choix : **Caméra** et **À la main**).
+- On enchaîne les livres sans toucher à l'écran ni à la souris. Bip aigu = ajouté, double bip = déjà possédé ou mal rangé, bip grave = erreur.
+- **Disposition du clavier** : seule la touche physique compte, en QWERTY comme en AZERTY, sur ordinateur comme sur téléphone.
+- **Mode poche** (téléphone) : écran allumé mais noir, touchers ignorés, bips conservés. Une page web ne reçoit rien écran verrouillé : seul le bip du téléphone prouve l'enregistrement, pas celui de la douchette.
 - Le code prix collé à l'EAN (5 chiffres de plus) est ignoré, et une double lecture accidentelle aussi.
 - Si votre douchette a un **mode mémoire** (scan sans ordinateur), exportez le fichier puis :
   `biblio import codes.txt --place "Salon/É1"`.
@@ -262,13 +295,13 @@ Puis, sur l'ordinateur, page **Téléphone** (ou `biblio phone` dans le terminal
    « Sur l'écran d'accueil ». L'icône « Bibliothèque » ouvre alors le scan sans aucune barre.
 
 Les bips sonnent même en mode silencieux (une musique en cours peut se mettre en pause) ;
-case « Bips sonores » pour les couper.
+case « Bips sonores » ou bouton haut-parleur de la caméra pour les couper.
 
 Détails :
 - Téléphone et ordinateur sur le même Wi-Fi. Au premier lancement, le pare-feu demande d'autoriser
   Python à accepter les connexions entrantes : acceptez (macOS ; Windows : « Réseaux privés » ;
   Linux : voir Installation).
-- **Sécurité** : le QR code 2 contient une clé secrète ; sans elle, un autre appareil du réseau ne
+- **Sécurité** : le QR code 2 contient une clé secrète ; sans elle ni compte, un autre appareil du réseau ne
   voit rien. Page Téléphone › « Changer la clé » (ou `biblio phone --new-key`) coupe
   l'accès des téléphones déjà connectés. Le serveur d'installation (port 8080) ne sert que le
   certificat.
@@ -299,7 +332,11 @@ pour 2 000 livres. Le scan n'attend jamais le réseau.
 | **BnF** (catalogue général, UNIMARC) | Source principale pour les livres français. Fournit le Dewey des documentaires et le « cadre de classement » pour la fiction. |
 | **Open Library** | Couvertures, livres anglophones, Dewey et LCC complémentaires. |
 | **Library of Congress** | LCC et Dewey des livres non français. |
-| **Google Books** | Facultatif, seulement avec une clé API gratuite (Réglages). Sans clé, son quota anonyme est saturé : c'est probablement ce qui bloquait autrefois. |
+| **Sudoc** | Bibliothèques universitaires : complète la BnF, avec souvent un Dewey même pour la fiction. |
+| **K10plus**, **DNB** | Bibliothèques allemandes, pour les livres introuvables ailleurs. |
+| **Google Books** | Facultatif, seulement avec une clé API gratuite (Administration › Catalogues). Sans clé, son quota anonyme est souvent saturé. |
+| **MusicBrainz**, **Discogs**, **Deezer**, **iTunes** | Disques. |
+| **UPCitemdb**, **TMDb**, **OMDb** | Films (TMDb et OMDb avec une clé gratuite). |
 
 Chaque réponse brute est conservée (table `raw_responses`). On ne réinterroge donc jamais
 un ISBN, et l'on peut recalculer toutes les fiches et cotes sans réseau
@@ -340,7 +377,7 @@ Open Library, donc imparfait. Corrigez à la main ou enrichissez `rules/mots.tom
 
 La ligne de commande est entièrement en anglais (commandes, options, messages).
 L'interface web, elle, est en français par défaut, ou en anglais : Réglages, ou le
-petit sélecteur **FR · EN** en haut à droite de chaque page.
+petit sélecteur **FR · EN** en haut à droite de chaque page (dans le menu ☰ sur téléphone).
 
 ```bash
 ./biblio.sh --help
@@ -350,7 +387,7 @@ petit sélecteur **FR · EN** en haut à droite de chaque page.
 
 | Commande | Rôle |
 |---|---|
-| `place add Salon` · `place shelf Salon É1 É2` · `place list` · `place rename` · `place remove` | Lieux et étagères |
+| `place add Salon` · `place shelf Salon É1 É2` · `place row Salon/É1 Devant` · `place list` · `place rename` · `place remove` | Lieux, étagères et rangées |
 | `scan --place "Salon/É1"` | Scanner dans le terminal (`:place`, `:mode move`, `:undo`, `:q`) |
 | `import codes.txt --place Salon` | Importer une liste d'ISBN |
 | `resolve [--retry]` | Décrire les livres en attente / réessayer les introuvables |
@@ -371,14 +408,17 @@ petit sélecteur **FR · EN** en haut à droite de chaque page.
 | `backup [--dir DOSSIER] [--keep N]` | Copie de sécurité de la base |
 | `serve [--phone]` · `phone [--new-key] [--admin]` | Appli web, scan au téléphone, QR codes, clé admin (serveur) |
 | `todo` · `stats` · `export --format xlsx` | À traiter, chiffres, export Excel (une feuille par lieu) |
+| `export --format goodreads` · `export --format babelio` · `import-babelio FICHIER` | Fichiers pour les applis de lecture, statuts et notes repris de Babelio |
 | `sql` · `sql "select …"` | Shell SQLite direct |
+| `user add NOM --role admin` · `user list` · `user reset NOM` · `user disable NOM` | Comptes |
+| `sources` | Teste chaque catalogue |
 
 ## Données
 
 - Base : `data/biblio.db` (SQLite). Tables principales : `personnes` (propriétaires, emprunteurs),
-  `notices` (le livre, avec ou sans ISBN, la note et la lecture), `exemplaires` (l'objet, son propriétaire, son lieu,
-  ses détails), `classifications` (une cote par système), `raw_responses` (réponses des catalogues), `lieux`,
-  `etageres`, `mouvements`, `inventaires`, `prets`, `suppressions` (ce que la synchronisation ne doit pas faire revenir).
+  `notices` (le livre, le disque ou le film, avec ou sans code-barres, la note et la lecture), `exemplaires` (l'objet,
+  son propriétaire, son lieu, ses détails), `classifications` (une cote par système), `raw_responses` (réponses des
+  catalogues), `lieux`, `etageres`, `rangees`, `comptes`, `sessions`, `journal`, `mouvements`, `inventaires`, `prets`, `suppressions` (ce que la synchronisation ne doit pas faire revenir).
 - **Sauvegardes** : `biblio serve` copie la base dans `data/sauvegardes/` une fois par jour, et `biblio backup`
   le fait à la demande. Les 14 dernières copies sont gardées. Ce sont elles qu'il faut restaurer :
   [comment faire](DOCUMENTATION.fr.md#sauvegarder).

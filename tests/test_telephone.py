@@ -1,4 +1,5 @@
 import ipaddress
+import sys
 
 import pytest
 from cryptography import x509
@@ -13,6 +14,7 @@ TELEPHONE = ("192.168.1.42", 50000)
 @pytest.fixture
 def dossier_certs(tmp_path, monkeypatch):
     monkeypatch.setattr(certs, "DOSSIER", tmp_path / "certs")
+    monkeypatch.setenv("BIBLIO_NOM", "mac.local")
     return tmp_path / "certs"
 
 
@@ -37,7 +39,8 @@ def test_certificat_serveur_signe_par_la_ca(dossier_certs):
     assert set(san.get_values_for_type(x509.DNSName)) == {"localhost", "mac.local"}
     assert ipaddress.ip_address("192.168.1.10") in san.get_values_for_type(x509.IPAddress)
     assert (cert.not_valid_after_utc - cert.not_valid_before_utc).days <= 398       # exigence iOS
-    assert oct(cle_path.stat().st_mode)[-3:] == "600"
+    if sys.platform != "win32":                                    # Windows ignore chmod 600
+        assert oct(cle_path.stat().st_mode)[-3:] == "600"
 
 
 def test_certificat_reutilise_ou_regenere(dossier_certs):
@@ -54,10 +57,12 @@ def test_mac_local_sans_cle(base):
 
 
 def test_telephone_sans_cle_refuse(base):
-    client = TestClient(app, client=TELEPHONE)
-    assert client.get("/catalogue").status_code == 403
-    assert client.get("/catalogue?cle=mauvaise").status_code == 403
+    client = TestClient(app, client=TELEPHONE, follow_redirects=False)
+    for adresse in ("/catalogue", "/catalogue?cle=mauvaise"):
+        r = client.get(adresse)
+        assert r.status_code == 303 and r.headers["location"].startswith("/connexion")
     assert client.get("/api/etat").status_code == 403
+    assert "Se connecter" in client.get("/connexion").text
     assert client.get("/static/style.css").status_code == 200               # pas de données
 
 
@@ -76,7 +81,8 @@ def test_manifest_ecran_d_accueil(base):
     local = TestClient(app, client=("127.0.0.1", 50000), base_url="http://localhost").get("/manifest.webmanifest").json()
     assert local["display"] == "standalone" and local["start_url"] == "/scan?camera=1"
     client = TestClient(app, client=TELEPHONE)
-    assert client.get("/manifest.webmanifest").status_code == 403          # pas sans la clé
+    # Sans clé : public, pour ajouter l'icône depuis la page de connexion ; aucun secret dedans
+    assert client.get("/manifest.webmanifest").json()["start_url"] == "/scan?camera=1"
     client.get(f"/scan?cle={cle}")
     # L'appli d'écran d'accueil iOS a ses propres cookies : elle se reconnecte avec la clé
     assert client.get("/manifest.webmanifest").json()["start_url"] == f"/scan?camera=1&cle={cle}"
@@ -87,7 +93,7 @@ def test_nouvelle_cle_coupe_l_acces(base):
     client = TestClient(app, client=TELEPHONE)
     client.get(f"/scan?cle={cle}")
     telephone.nouvelle_cle(base)
-    assert client.get("/catalogue").status_code == 403
+    assert client.get("/catalogue", follow_redirects=False).status_code == 303
 
 
 def test_serveur_d_installation(dossier_certs):
@@ -157,7 +163,7 @@ def test_cle_telephone_sans_les_reglages(base):
 
 
 def test_cle_admin_pour_le_mac(base):
-    """Sur le Pi, le Mac passe par le réseau avec la clé admin : il a tout, page Téléphone comprise."""
+    """Sur un serveur, l'ordinateur passe par le réseau avec la clé admin : il a tout, page Téléphone comprise."""
     cle_tel, cle_admin = telephone.cle(base), telephone.cle_admin(base)
     assert cle_admin != cle_tel
     mac = TestClient(app, client=("192.168.1.30", 50000))
@@ -170,11 +176,11 @@ def test_cle_admin_pour_le_mac(base):
     tel = TestClient(app, client=TELEPHONE)
     tel.get(f"/scan?cle={cle_tel}")
     assert mac.post("/telephone/nouvelle-cle", follow_redirects=False).status_code == 303
-    assert tel.get("/catalogue").status_code == 403
+    assert tel.get("/catalogue", follow_redirects=False).status_code == 303
     assert mac.get("/catalogue").status_code == 200
     # Et une nouvelle clé admin coupe l'ancienne
     telephone.nouvelle_cle_admin(base)
-    assert mac.get("/catalogue").status_code == 403
+    assert mac.get("/catalogue", follow_redirects=False).status_code == 303
 
 
 def test_pas_de_cle_admin_sans_la_demander(base):

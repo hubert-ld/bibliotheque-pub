@@ -11,7 +11,18 @@
 #   cadre = ["803"]          (début du code du cadre BnF)
 #   langue = ["fre"] / langue_non = ["fre"]   (langue d'origine)
 #   mots = ["policier", "@policier"]          (texte ou liste de mots.toml)
+#   support = ["cd", "vinyle", "cassette", "dvd", "bluray"]   (disques et films : les autres conditions ne les visent pas)
 # Modifiez librement puis lancez :  biblio reclassify
+
+[[regle]]
+abbr = "MUS"
+libelle = "Musique"
+support = ["cd", "vinyle", "cassette"]
+
+[[regle]]
+abbr = "FILM"
+libelle = "Films"
+support = ["dvd", "bluray"]
 
 [[regle]]
 abbr = "MAN"

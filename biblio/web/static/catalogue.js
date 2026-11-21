@@ -6,6 +6,30 @@
   const petit = window.matchMedia("(max-width: 900px)");
   ouvrir.addEventListener("click", () => panneau.showModal());
   document.getElementById("fermer-filtres").addEventListener("click", () => panneau.close());
+  document.getElementById("voir-resultats").addEventListener("click", () => panneau.close());
+
+  // Grand écran : tout reste déplié. Petit écran : seules les sections en cours d'usage le sont.
+  if (!petit.matches) panneau.querySelectorAll("details.repliable").forEach((d) => { d.open = true; });
+
+  // Choisir un filtre recharge la page : le panneau se rouvre au même endroit, pour en combiner plusieurs.
+  const CLE = "catalogue.filtres";
+  const memoriser = () => {
+    if (!petit.matches) return;
+    try { sessionStorage.setItem(CLE, String(panneau.scrollTop)); } catch (e) {}
+  };
+  panneau.addEventListener("change", memoriser);
+  panneau.addEventListener("click", (ev) => { if (ev.target.closest("a")) memoriser(); });
+  try {
+    const position = sessionStorage.getItem(CLE);
+    sessionStorage.removeItem(CLE);
+    if (position !== null && petit.matches) {
+      panneau.showModal();
+      panneau.scrollTop = Number(position);
+    }
+  } catch (e) {}
+
+  // Curseur dans la recherche seulement à la souris : sur écran tactile, le clavier cacherait la liste.
+  if (window.matchMedia("(hover: hover)").matches) document.getElementById("champ-recherche").focus();
   panneau.addEventListener("click", (ev) => {           // un toucher sur le fond : le dialog lui-même
     if (ev.target === panneau) panneau.close();
   });
@@ -62,6 +86,20 @@
     tous.value = "";
     maj();
   });
+  // Téléphone : les cases n'apparaissent qu'en mode sélection
+  const table = document.getElementById("table-catalogue");
+  const boutonMode = document.getElementById("mode-selection");
+  const texteMode = boutonMode?.textContent;
+  boutonMode?.addEventListener("click", () => {
+    const actif = table.classList.toggle("selection");
+    boutonMode.textContent = actif ? boutonMode.dataset.fin : texteMode;
+    if (!actif) document.getElementById("lot-aucun").click();
+  });
+  const boutonPlus = document.getElementById("lot-plus");
+  boutonPlus?.addEventListener("click", () => {
+    boutonPlus.setAttribute("aria-expanded", String(lot.classList.toggle("lot-ouvert")));
+  });
+
   // Don : un changement de propriétaire, à confirmer (ce n'est pas un prêt)
   const vers = document.getElementById("lot-vers");
   document.getElementById("lot-donner")?.addEventListener("click", (ev) => {

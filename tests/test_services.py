@@ -34,10 +34,10 @@ def test_ajout_rebond_et_doublon(conn, biblio):
 
 
 def test_emplacement_texte(conn, biblio):
-    assert services.emplacement(conn, "salon/é1") == (biblio["salon"], biblio["e1"])
+    assert services.emplacement(conn, "salon/é1") == (biblio["salon"], biblio["e1"], None)
     with pytest.raises(Erreur):
         services.emplacement(conn, "Grenier")
-    lieu, etagere = services.emplacement(conn, "Grenier > Carton 1", creer=True)
+    lieu, etagere, _ = services.emplacement(conn, "Grenier > Carton 1", creer=True)
     assert services.nom_emplacement(conn, lieu, etagere) == "Grenier › Carton 1"
 
 
@@ -419,7 +419,7 @@ def test_noms_de_lieux_vides_refuses(conn, biblio):
 
 def test_lieu_dont_le_nom_contient_un_separateur(conn):
     lieu = services.creer_lieu(conn, "Bureau/Chambre")
-    assert services.emplacement(conn, "Bureau/Chambre") == (lieu, None)
+    assert services.emplacement(conn, "Bureau/Chambre") == (lieu, None, None)
 
 
 def test_dates_impossibles_refusees(conn, biblio):
@@ -568,7 +568,7 @@ def test_doublons_autres_emplacements_listes_mais_jamais_retires(conn):
 
 
 def test_doublons_garde_les_exemplaires_renseignes_et_preferes(conn):
-    salon, e1, e2 = _salon(conn)
+    salon, e1, _e2 = _salon(conn)
     nu, note, prete, dedicace = _exemplaires(conn, 4, salon, e1)
     services.modifier_exemplaire(conn, note, {"notes": "second exemplaire"})
     services.modifier_exemplaire(conn, dedicace, {"dedicace": "à Victor"})

@@ -1,0 +1,84 @@
+# Disques et films : indice selon le genre (première ligne dont un mot figure dans les genres de la notice).
+# Après modification : biblio reclassify
+
+[musique.defaut]
+libelle = "Musique"
+dewey = "780"
+cdu = "78"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Musique classique"
+mots = ["classical", "classique", "opera", "baroque", "symphony"]
+dewey = "781.68"
+cdu = "78.01"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Jazz"
+mots = ["jazz", "swing", "bebop"]
+dewey = "781.65"
+cdu = "78.036"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Blues, soul"
+mots = ["blues", "soul", "funk", "funk / soul", "r&b"]
+dewey = "781.643"
+cdu = "78.036"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Rock"
+mots = ["rock", "punk", "metal", "grunge"]
+dewey = "781.66"
+cdu = "78.067"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Rap, hip-hop"
+mots = ["rap", "hip hop", "hip-hop"]
+dewey = "782.421649"
+cdu = "78.067"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Électro"
+mots = ["electronic", "electro", "techno", "house", "disco"]
+dewey = "786.7"
+cdu = "78.067"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Musiques du monde, folk"
+mots = ["folk", "world", "traditional", "country"]
+dewey = "781.62"
+cdu = "78.03"
+lcc = "M"
+
+[[musique.genre]]
+libelle = "Chanson, pop"
+mots = ["pop", "chanson", "variete", "variété"]
+dewey = "781.63"
+cdu = "78.067"
+lcc = "M"
+
+[films.defaut]
+libelle = "Films"
+dewey = "791.43"
+cdu = "791.43"
+lcc = "PN1995.9"
+
+[[films.genre]]
+libelle = "Films d'animation"
+mots = ["animation"]
+dewey = "791.4334"
+cdu = "791.43"
+lcc = "PN1997.5"
+
+[[films.genre]]
+libelle = "Documentaires"
+mots = ["documentary", "documentaire"]
+dewey = "070.18"
+cdu = "791.43"
+lcc = "PN1995.9"

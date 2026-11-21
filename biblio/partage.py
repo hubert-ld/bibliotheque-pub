@@ -23,6 +23,7 @@ from .i18n import tr
 from .services import CHAMPS_PERSONNELS, Erreur, _par_nom, nom_emplacement, proprietaire_local, retirer_exemplaire
 
 CHAMPS_EXEMPLAIRE_PERSONNELS = ("etat", "prix_achat", "date_achat", "provenance", "dedicace", "valeur", "notes")
+CHAMPS_EXEMPLAIRE_SCAN = ("ajoute_par", "dernier_scan_le", "dernier_scan_par")   # les noms de la maison restent chez moi
 
 
 class PremiereSynchro(Erreur):
@@ -116,9 +117,9 @@ def exporter_partage(conn, chemin: Path | str, lieux: list[int] | None = None,
         for e in exemplaires:
             texte = None
             if not masquer_lieux and e["lieu_id"]:
-                texte = nom_emplacement(conn, e["lieu_id"], e["etagere_id"])
-            _inserer(dest, "exemplaires", dict(e, lieu_id=None, etagere_id=None, lieu_texte=texte,
-                                               **dict.fromkeys(CHAMPS_EXEMPLAIRE_PERSONNELS)))
+                texte = nom_emplacement(conn, e["lieu_id"], e["etagere_id"], e["rangee_id"])
+            _inserer(dest, "exemplaires", dict(e, lieu_id=None, etagere_id=None, rangee_id=None, lieu_texte=texte,
+                                               **dict.fromkeys(CHAMPS_EXEMPLAIRE_PERSONNELS + CHAMPS_EXEMPLAIRE_SCAN)))
             if avec_prets:
                 for p in conn.execute("SELECT * FROM prets WHERE exemplaire_id = ? AND preteur_id = ?", (e["id"], moi)):
                     personne(p["emprunteur_id"])
@@ -218,9 +219,9 @@ def _executer(conn, fonction, simulation: bool) -> dict:
 # --- Notices ----------------------------------------------------------------------
 
 def _notice_locale(conn, n: sqlite3.Row, uids_exemplaires: list[str]) -> int | None:
-    """La même notice chez moi : par ISBN ; sans ISBN, par identité, exemplaire, titre et auteur."""
-    if n["isbn13"]:
-        row = conn.execute("SELECT id FROM notices WHERE isbn13 = ?", (n["isbn13"],)).fetchone()
+    """La même notice chez moi : par ISBN ou EAN ; sinon, par identité, exemplaire, titre et auteur."""
+    if n["isbn13"] or n["ean"]:
+        row = conn.execute("SELECT id FROM notices WHERE isbn13 = ? OR ean = ?", (n["isbn13"], n["ean"])).fetchone()
         return row["id"] if row else None
     row = conn.execute("SELECT id FROM notices WHERE uid = ?", (n["uid"],)).fetchone()
     if row:
@@ -231,7 +232,7 @@ def _notice_locale(conn, n: sqlite3.Row, uids_exemplaires: list[str]) -> int | N
             return row["notice_id"]
     cle = (db.norm(n["titre"]).strip(), db.norm(n["auteur_tri"]).strip())
     if cle[0]:
-        for r in conn.execute("SELECT id, titre, auteur_tri FROM notices WHERE isbn13 IS NULL"):
+        for r in conn.execute("SELECT id, titre, auteur_tri FROM notices WHERE isbn13 IS NULL AND ean IS NULL"):
             if (db.norm(r["titre"]).strip(), db.norm(r["auteur_tri"]).strip()) == cle:
                 return r["id"]
     return None
@@ -404,7 +405,10 @@ def _lieu_en_texte(src, e: dict) -> str | None:
         return e["lieu_texte"]
     lieu = src.execute("SELECT nom FROM lieux WHERE id = ?", (e["lieu_id"],)).fetchone()
     etagere = src.execute("SELECT nom FROM etageres WHERE id = ?", (e["etagere_id"],)).fetchone()
-    return f"{lieu['nom']} › {etagere['nom']}" if lieu and etagere else (lieu["nom"] if lieu else None)
+    rangee = src.execute("SELECT nom FROM rangees WHERE id = ?", (e["rangee_id"],)).fetchone()
+    if not lieu:
+        return None
+    return " › ".join(x["nom"] for x in (lieu, etagere, rangee) if x)
 
 
 def _importer_exemplaire(conn, src, e: dict, notice_id: int, ami: int, moi: int, rapport) -> int | None:
@@ -468,7 +472,7 @@ def _plus_recente_suppression(conn, uid: str) -> str | None:
 def _appliquer_suppressions(conn, src, rapport) -> None:
     """Ce qui a été supprimé là-bas l'est ici, sauf si je l'ai modifié depuis."""
     for s in src.execute("SELECT * FROM suppressions"):
-        table = {"exemplaire": "exemplaires", "lieu": "lieux", "etagere": "etageres"}[s["genre"]]
+        table = {"exemplaire": "exemplaires", "lieu": "lieux", "etagere": "etageres", "rangee": "rangees"}[s["genre"]]
         row = conn.execute(f"SELECT id, maj_le FROM {table} WHERE uid = ?", (s["uid"],)).fetchone()
         if row and row["maj_le"] > s["le"]:
             continue
@@ -476,8 +480,9 @@ def _appliquer_suppressions(conn, src, rapport) -> None:
             retirer_exemplaire(conn, row["id"])
             rapport["exemplaires_retires"] += 1
         elif row:
-            colonne = "lieu_id" if s["genre"] == "lieu" else "etagere_id"
-            effacer = "lieu_id = NULL, etagere_id = NULL" if s["genre"] == "lieu" else "etagere_id = NULL"
+            colonne, effacer = {"lieu": ("lieu_id", "lieu_id = NULL, etagere_id = NULL, rangee_id = NULL"),
+                                "etagere": ("etagere_id", "etagere_id = NULL, rangee_id = NULL"),
+                                "rangee": ("rangee_id", "rangee_id = NULL")}[s["genre"]]
             conn.execute(f"UPDATE exemplaires SET {effacer}, maj_le = ? WHERE {colonne} = ?", (s["le"], row["id"]))
             conn.execute(f"DELETE FROM {table} WHERE id = ?", (row["id"],))
             rapport["lieux_retires"] += 1
@@ -487,7 +492,7 @@ def _appliquer_suppressions(conn, src, rapport) -> None:
 
 
 def _synchroniser_lieu(conn, table: str, ligne: sqlite3.Row, candidats, valeurs: dict, rapport) -> int | None:
-    """Un lieu ou une étagère : même identité, sinon même nom. Renvoie son numéro local (None : supprimé)."""
+    """Un lieu, une étagère ou une rangée : même identité, sinon même nom. Renvoie son numéro local (None : supprimé)."""
     suppression = _plus_recente_suppression(conn, ligne["uid"])
     if suppression and suppression >= ligne["maj_le"]:
         return None
@@ -497,10 +502,16 @@ def _synchroniser_lieu(conn, table: str, ligne: sqlite3.Row, candidats, valeurs:
         if meme_nom is None:
             conn.execute("DELETE FROM suppressions WHERE uid = ?", (ligne["uid"],))
             rapport["lieux_ajoutes"] += 1
-            return _inserer(conn, table, dict(ligne, **valeurs, id=None))
-        uid = conn.execute(f"SELECT uid FROM {table} WHERE id = ?", (meme_nom,)).fetchone()["uid"]
-        # Deux noms identiques créés chacun de son côté : les deux bases gardent le même identifiant
-        conn.execute(f"UPDATE {table} SET uid = ? WHERE id = ?", (min(uid, ligne["uid"]), meme_nom))
+            etiquette = ligne["etiquette"]
+            if conn.execute(f"SELECT 1 FROM {table} WHERE etiquette = ?", (etiquette,)).fetchone():
+                etiquette = db.nouvelle_etiquette(conn, table)
+            return _inserer(conn, table, dict(ligne, **valeurs, id=None, etiquette=etiquette))
+        mien = conn.execute(f"SELECT uid, etiquette FROM {table} WHERE id = ?", (meme_nom,)).fetchone()
+        # Deux noms identiques créés chacun de son côté : les deux bases gardent le même identifiant et la même étiquette
+        gagnant = min((mien, ligne), key=lambda r: r["uid"])
+        if conn.execute(f"SELECT 1 FROM {table} WHERE etiquette = ? AND id != ?", (gagnant["etiquette"], meme_nom)).fetchone():
+            gagnant = mien
+        conn.execute(f"UPDATE {table} SET uid = ?, etiquette = ? WHERE id = ?", (gagnant["uid"], gagnant["etiquette"], meme_nom))
         return meme_nom
     if ligne["maj_le"] > local["maj_le"]:
         autre = _par_nom(candidats(), ligne["nom"])
@@ -544,8 +555,15 @@ def _synchroniser(conn, src, moi_src) -> Counter:
         lieu_id = lieux.get(e["lieu_id"])
         if lieu_id:
             etageres[e["id"]] = _synchroniser_lieu(
-                conn, "etageres", e, lambda: conn.execute("SELECT id, nom FROM etageres WHERE lieu_id = ?", (lieu_id,)),
+                conn, "etageres", e, lambda lieu_id=lieu_id: conn.execute("SELECT id, nom FROM etageres WHERE lieu_id = ?", (lieu_id,)),
                 {"lieu_id": lieu_id}, rapport)
+    rangees = {}
+    for r in src.execute("SELECT * FROM rangees ORDER BY id"):
+        etagere_id = etageres.get(r["etagere_id"])
+        if etagere_id:
+            rangees[r["id"]] = _synchroniser_lieu(
+                conn, "rangees", r, lambda etagere_id=etagere_id: conn.execute("SELECT id, nom FROM rangees WHERE etagere_id = ?", (etagere_id,)),
+                {"etagere_id": etagere_id}, rapport)
 
     exemplaires = []
     for e in src.execute("SELECT * FROM exemplaires ORDER BY id"):
@@ -559,12 +577,15 @@ def _synchroniser(conn, src, moi_src) -> Counter:
     for e in exemplaires:
         valeurs = {c: e[c] for c in CHAMPS_EXEMPLAIRE_PERSONNELS}
         valeurs.update(proprietaire_id=personnes[e["proprietaire_id"]], lieu_id=lieux.get(e["lieu_id"]),
-                       etagere_id=etageres.get(e["etagere_id"]), lieu_texte=e["lieu_texte"], maj_le=e["maj_le"])
+                       etagere_id=etageres.get(e["etagere_id"]), rangee_id=rangees.get(e["rangee_id"]),
+                       lieu_texte=e["lieu_texte"], maj_le=e["maj_le"])
         local = conn.execute("SELECT id, maj_le FROM exemplaires WHERE uid = ?", (e["uid"],)).fetchone()
         if local is None:
             conn.execute("DELETE FROM suppressions WHERE uid = ?", (e["uid"],))
             ids[e["id"]] = _inserer(conn, "exemplaires", dict(valeurs, uid=e["uid"], notice_id=notices[e["notice_id"]],
-                                                              ajoute_le=e["ajoute_le"]))
+                                                              ajoute_le=e["ajoute_le"], ajoute_par=e["ajoute_par"],
+                                                              dernier_scan_le=e["dernier_scan_le"],
+                                                              dernier_scan_par=e["dernier_scan_par"]))
             rapport["exemplaires_ajoutes"] += 1
         else:
             ids[e["id"]] = local["id"]
@@ -572,6 +593,10 @@ def _synchroniser(conn, src, moi_src) -> Counter:
                 sets = ", ".join(f"{k} = ?" for k in valeurs)
                 conn.execute(f"UPDATE exemplaires SET {sets} WHERE id = ?", [*valeurs.values(), local["id"]])
                 rapport["exemplaires_mis_a_jour"] += 1
+            # Indépendant de maj_le : le scan le plus récent gagne, sans compter comme une modification
+            conn.execute("UPDATE exemplaires SET dernier_scan_le = ?, dernier_scan_par = ? WHERE id = ? "
+                         "AND ? IS NOT NULL AND (dernier_scan_le IS NULL OR dernier_scan_le < ?)",
+                         (e["dernier_scan_le"], e["dernier_scan_par"], local["id"], e["dernier_scan_le"], e["dernier_scan_le"]))
         db.reindex_notice(conn, notices[e["notice_id"]])
 
     for p in src.execute("SELECT * FROM prets"):
@@ -582,7 +607,13 @@ def _synchroniser(conn, src, moi_src) -> Counter:
         if m["exemplaire_id"] in ids and not conn.execute("SELECT 1 FROM mouvements WHERE uid = ?", (m["uid"],)).fetchone():
             _inserer(conn, "mouvements", dict(uid=m["uid"], exemplaire_id=ids[m["exemplaire_id"]], date=m["date"],
                                               de_lieu=lieux.get(m["de_lieu"]), de_etagere=etageres.get(m["de_etagere"]),
-                                              vers_lieu=lieux.get(m["vers_lieu"]), vers_etagere=etageres.get(m["vers_etagere"])))
+                                              de_rangee=rangees.get(m["de_rangee"]), vers_lieu=lieux.get(m["vers_lieu"]),
+                                              vers_etagere=etageres.get(m["vers_etagere"]),
+                                              vers_rangee=rangees.get(m["vers_rangee"])))
+
+    for s in src.execute("SELECT * FROM scans"):
+        if s["exemplaire_id"] in ids and not conn.execute("SELECT 1 FROM scans WHERE uid = ?", (s["uid"],)).fetchone():
+            _inserer(conn, "scans", dict(uid=s["uid"], exemplaire_id=ids[s["exemplaire_id"]], par=s["par"], le=s["le"], mode=s["mode"]))
 
     if moi_src["uid"] not in mes_uids:                   # cette base est désormais reconnue comme mienne
         autres = db.jload(db.get_meta(conn, "moi_autres_bases"), [])

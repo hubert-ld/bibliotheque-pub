@@ -68,12 +68,12 @@ def test_cotes():
     assert libelle("sans chiffre") is None
 
 
+
 def test_intitules_dewey_personnels(monkeypatch):
     from biblio.classify import dewey
     monkeypatch.setattr(dewey, "rules", lambda nom: {"libelles": {"843": "Mes romans"}})
     assert dewey.libelle("843.914") == "Mes romans"
     assert dewey.libelle("944") == "900-999"
-
 
 def test_ordre_de_rangement_classe_large_avant_classe_fine():
     from biblio.classify import cle_tri

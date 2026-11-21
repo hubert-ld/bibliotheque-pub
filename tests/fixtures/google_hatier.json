@@ -1,0 +1,70 @@
+{
+  "kind": "books#volumes",
+  "totalItems": 1,
+  "items": [
+    {
+      "kind": "books#volume",
+      "id": "ONX8PAAACAAJ",
+      "etag": "+ZHWG3Cr8sg",
+      "selfLink": "https://www.googleapis.com/books/v1/volumes/ONX8PAAACAAJ",
+      "volumeInfo": {
+        "title": "Bescherelle Poche",
+        "authors": [
+          "Hatier,"
+        ],
+        "publishedDate": "2007",
+        "industryIdentifiers": [
+          {
+            "type": "ISBN_10",
+            "identifier": "2218930234"
+          },
+          {
+            "type": "ISBN_13",
+            "identifier": "9782218930232"
+          }
+        ],
+        "readingModes": {
+          "text": false,
+          "image": false
+        },
+        "pageCount": 0,
+        "printType": "BOOK",
+        "averageRating": 4,
+        "ratingsCount": 1,
+        "maturityRating": "NOT_MATURE",
+        "allowAnonLogging": false,
+        "contentVersion": "preview-1.0.0",
+        "panelizationSummary": {
+          "containsEpubBubbles": false,
+          "containsImageBubbles": false
+        },
+        "language": "fr",
+        "previewLink": "http://books.google.fr/books?id=ONX8PAAACAAJ&dq=isbn:9782218930232&hl=&cd=1&source=gbs_api",
+        "infoLink": "http://books.google.fr/books?id=ONX8PAAACAAJ&dq=isbn:9782218930232&hl=&source=gbs_api",
+        "canonicalVolumeLink": "https://books.google.com/books/about/Bescherelle_Poche.html?hl=&id=ONX8PAAACAAJ"
+      },
+      "saleInfo": {
+        "country": "FR",
+        "saleability": "NOT_FOR_SALE",
+        "isEbook": false
+      },
+      "accessInfo": {
+        "country": "FR",
+        "viewability": "NO_PAGES",
+        "embeddable": false,
+        "publicDomain": false,
+        "textToSpeechPermission": "ALLOWED",
+        "epub": {
+          "isAvailable": false
+        },
+        "pdf": {
+          "isAvailable": false
+        },
+        "webReaderLink": "http://play.google.com/books/reader?id=ONX8PAAACAAJ&hl=&source=gbs_api",
+        "accessViewStatus": "NONE",
+        "quoteSharingAllowed": false
+      }
+    }
+  ]
+}
+

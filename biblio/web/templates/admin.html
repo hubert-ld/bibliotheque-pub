@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Administration") }}{% endblock %}
+{% block content %}
+<div class="entete-page"><h1>{{ _("Administration") }}</h1></div>
+<nav class="onglets" aria-label="{{ _('Administration') }}">
+  {% for code, nom in onglets %}<a href="/admin/{{ code }}" class="{{ 'actif' if onglet == code }}" {{ 'aria-current=page' if onglet == code }}>{{ _(nom) }}</a>{% endfor %}
+</nav>
+
+{% macro pastille_etat(etat) -%}
+<span class="etat-source {{ etat }}">{{ _(NOMS_ETATS[etat]) }}</span>
+{%- endmacro %}
+
+{% if onglet == 'sante' %}
+<div class="tuiles">
+  <div class="tuile"><b>{{ g.livres }}</b><span>{{ _("livres") }}</span></div>
+  <div class="tuile"><b>{{ g.disques }}</b><span>{{ _("disques") }}</span></div>
+  <div class="tuile"><b>{{ g.films }}</b><span>{{ _("films") }}</span></div>
+  <div class="tuile"><b>{{ g.exemplaires }}</b><span>{{ _("exemplaires") }}</span></div>
+  <div class="tuile"><b>{{ g.prets }}</b><span>{{ _("prêts en cours") }}</span></div>
+  <div class="tuile"><b>{{ g.comptes }}</b><span>{{ _("comptes actifs") }}</span></div>
+  <div class="tuile"><b>{{ g.appareils }}</b><span>{{ _("appareils connectés") }}</span></div>
+</div>
+<div class="deux-colonnes" style="margin-top:1rem">
+  <section class="carte">
+    <h2>{{ _("Serveur") }}</h2>
+    <dl class="infos">
+      <dt>{{ _("Version") }}</dt><dd>{{ g.version }} · {{ _("schéma {n}", n=g.schema) }}</dd>
+      <dt>{{ _("Base") }}</dt><dd><code style="word-break:break-all">{{ g.base }}</code><br>{{ octets(g.taille_base) }}</dd>
+      <dt>{{ _("Espace disque") }}</dt><dd>{{ _("{libre} libres sur {total}", libre=octets(g.disque_libre), total=octets(g.disque_total)) }}</dd>
+      <dt>{{ _("Recherche en arrière-plan") }}</dt><dd>{% if fil %}<span class="etat-source ok">{{ _("En marche") }}</span>{% else %}<span class="etat-source panne">{{ _("Arrêtée") }}</span>{% endif %}
+        · {{ _("{n} en attente", n=g.en_attente) }} · <a href="/a-traiter">{{ _("{n} en échec", n=g.en_echec) }}</a></dd>
+      <dt>{{ _("Dernière sauvegarde") }}</dt><dd>{{ (g.derniere_sauvegarde or _("aucune"))[:16] | replace('T', ' ') }} · <a href="/admin/systeme">{{ _("{n} copies", n=g.nb_sauvegardes) }}</a></dd>
+      <dt>{{ _("Lieux") }}</dt><dd>{{ _("{l} lieux, {e} étagères, {r} rangées", l=g.lieux, e=g.etageres, r=g.rangees) }}</dd>
+    </dl>
+  </section>
+  <section class="carte">
+    <h2>{{ _("Réseau et certificats") }}</h2>
+    <dl class="infos">
+      <dt>{{ _("Mode téléphone") }}</dt><dd>{% if g.telephone_actif %}<span class="etat-source ok">{{ _("Actif") }}</span>{% else %}<span class="etat-source desactive">{{ _("Non lancé") }}</span>{% endif %}</dd>
+      <dt>{{ _("Adresse") }}</dt><dd><code>{{ g.nom_reseau }}</code> · <code>{{ g.ip }}</code></dd>
+      <dt>{{ _("Autorité locale") }}</dt><dd>{{ _("valable jusqu'au {date}", date=g.certificats.ca_expire) if g.certificats.ca_expire else _("pas encore créée") }}</dd>
+      <dt>{{ _("Certificat du serveur") }}</dt><dd>{% if g.certificats.serveur_expire %}{{ _("valable jusqu'au {date}", date=g.certificats.serveur_expire) }}<br><small class="doux">{{ (g.certificats.noms + g.certificats.ips) | join(", ") }}</small>{% else %}{{ _("pas encore créé") }}{% endif %}</dd>
+      {% if g.certificats.empreinte %}<dt>{{ _("Empreinte") }}</dt><dd><code style="word-break:break-all;font-size:.8rem">{{ g.certificats.empreinte }}</code></dd>{% endif %}
+    </dl>
+    <p class="doux" style="font-size:.85rem;margin-bottom:0">{{ _("Le certificat du serveur se renouvelle seul ; l'autorité installée sur les téléphones ne change pas.") }}</p>
+  </section>
+</div>
+<section class="carte" style="margin-top:1rem">
+  <div class="entete-note"><h2>{{ _("Catalogues") }}</h2><a class="bouton petit" href="/admin/catalogues">{{ _("Détails") }}</a></div>
+  <div class="resume-sources">{% for c in cats %}<span>{{ pastille_etat(c.etat) }} {{ c.nom }}</span>{% endfor %}</div>
+</section>
+
+{% elif onglet == 'comptes' %}
+{% if code_a_donner %}
+<div class="carte code-a-donner" role="status">
+  <h2>{{ _("À donner à la personne") }}</h2>
+  <dl class="infos"><dt>{{ _("Identifiant") }}</dt><dd><code>{{ code_a_donner.identifiant }}</code></dd>
+    <dt>{{ _("Code") }}</dt><dd><code class="grand">{{ code_a_donner.code }}</code></dd></dl>
+  <p class="doux" style="margin-bottom:0">{{ _("Notez-le maintenant : il ne sera plus jamais affiché. Elle le tapera une fois sur chaque appareil.") }}</p>
+</div>
+{% endif %}
+<div class="deux-colonnes">
+  <section>
+    {% for c in comptes %}
+    <article class="carte compte {{ '' if c.actif else 'inactif' }}">
+      <div class="entete-note"><h3 style="margin:0">{{ c.identifiant }}{% if c.nom %} <small class="doux">{{ c.nom }}</small>{% endif %}</h3>
+        <span class="badge {{ 'ok' if c.actif else '' }}">{{ _(NOMS_ROLES[c.role]) }}{% if not c.actif %} · {{ _("désactivé") }}{% endif %}</span></div>
+      <p class="doux" style="font-size:.85rem;margin:.2rem 0 .6rem">{{ _("Dernière connexion : {date}", date=(c.derniere_connexion or _("jamais"))[:16] | replace('T', ' ')) }}</p>
+      {% for a in c.appareils %}
+        <div class="ligne-appareil"><span>{{ a.appareil }} <small class="doux">{{ a.ip or '' }} · {{ _("vu le {vu}", vu=a.vu_le[:10]) }}</small></span>
+          <form method="post" action="/admin/appareils/{{ a.id }}/couper"><button class="petit">{{ _("Couper") }}</button></form></div>
+      {% else %}<p class="doux" style="font-size:.85rem;margin:0 0 .4rem">{{ _("Aucun appareil connecté.") }}</p>{% endfor %}
+      <details class="edition"><summary>{{ _("Modifier…") }}</summary>
+        <form method="post" action="/admin/comptes/{{ c.id }}" class="grille-champs" style="margin-top:.5rem">
+          <div class="champ"><label>{{ _("Nom") }}</label><input type="text" name="nom" value="{{ c.nom or '' }}"></div>
+          <div class="champ"><label>{{ _("Rôle") }}</label><select name="role">{% for r in ROLES %}<option value="{{ r }}" {{ 'selected' if c.role == r }}>{{ _(NOMS_ROLES[r]) }}</option>{% endfor %}</select></div>
+          <label class="case"><input type="checkbox" name="actif" value="1" {{ 'checked' if c.actif }}> <span>{{ _("Compte actif") }}</span></label>
+          <div><button class="petit">{{ _("Enregistrer") }}</button></div>
+        </form>
+        <form method="post" action="/admin/comptes/{{ c.id }}/code" class="ligne-form" style="margin-top:.6rem">
+          <input type="text" name="code" placeholder="{{ _('nouveau code, ou vide pour en générer un') }}" autocomplete="off" style="flex:1;min-width:0">
+          <button class="petit">{{ _("Changer le code") }}</button></form>
+        <form method="post" action="/admin/comptes/{{ c.id }}/supprimer" style="margin-top:.6rem"
+              onsubmit='return confirm({{ _("Supprimer le compte {identifiant} ?", identifiant=c.identifiant) | tojson }})'>
+          <button class="petit danger">{{ _("Supprimer ce compte") }}</button></form>
+      </details>
+    </article>
+    {% else %}
+    <div class="vide-etat carte"><h2>{{ _("Aucun compte") }}</h2><p>{{ _("Créez d'abord le vôtre, avec le rôle Admin.") }}</p></div>
+    {% endfor %}
+  </section>
+  <aside>
+    <form method="post" action="/admin/comptes" class="carte">
+      <h2>{{ _("Nouveau compte") }}</h2>
+      <div class="champ"><label>{{ _("Identifiant") }}</label><input type="text" name="identifiant" required autocomplete="off" autocapitalize="none"></div>
+      <div class="champ"><label>{{ _("Nom (facultatif)") }}</label><input type="text" name="nom" autocomplete="off"></div>
+      <div class="champ"><label>{{ _("Rôle") }}</label><select name="role">{% for r in ROLES %}<option value="{{ r }}">{{ _(NOMS_ROLES[r]) }}</option>{% endfor %}</select></div>
+      <div class="champ"><label>{{ _("Code (facultatif)") }}</label><input type="text" name="code" autocomplete="off" minlength="4">
+        <small>{{ _("Vide : six chiffres sont générés.") }}</small></div>
+      <button class="principal">{{ _("Créer le compte") }}</button>
+    </form>
+    <div class="carte">
+      <h3>{{ _("Les rôles") }}</h3>
+      <table class="table roles"><thead><tr><th></th>{% for r in ROLES %}<th>{{ _(NOMS_ROLES[r]) }}</th>{% endfor %}</tr></thead><tbody>
+        {% for texte, valeurs in [(_("Catalogue, fiches, où est-il ?"), "xxxx"), (_("Scanner, ranger, inventaire"), ".xxx"), (_("Modifier, lieux, prêts, exports"), "..xx"), (_("Notes, prix, emprunteurs, statistiques"), "..xx"), (_("Réglages, téléphone, administration"), "...x")] %}
+        <tr><td>{{ texte }}</td>{% for v in valeurs %}<td class="centre">{{ "✓" if v == "x" else "" }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody></table>
+    </div>
+  </aside>
+</div>
+
+{% elif onglet == 'catalogues' %}
+<div class="entete-note" style="margin-bottom:.75rem">
+  <p class="doux" style="margin:0">{{ _("Chaque test demande un code connu de tous : une réponse prouve que le catalogue répond.") }}</p>
+  <button type="button" class="principal" id="tester-catalogues" data-auto="{{ '1' if a_tester else '' }}">{{ _("Tester maintenant") }}</button>
+</div>
+{% for famille, titre in [("livres", _("Livres")), ("musique", _("Musique")), ("films", _("Films"))] %}
+<h2 style="margin-top:1.2rem">{{ titre }}</h2>
+<table class="table empilee catalogues">
+  <thead><tr><th>{{ _("Catalogue") }}</th><th>{{ _("État") }}</th><th class="num">{{ _("Temps") }}</th><th>{{ _("Dernier test") }}</th>
+    <th class="num">{{ _("Réponses") }}</th><th class="num">{{ _("Absents") }}</th><th class="num">{{ _("Erreurs") }}</th><th></th></tr></thead>
+  <tbody>
+  {% for c in cats if c.famille == famille %}
+    <tr>
+      <td><b>{{ c.nom }}</b></td>
+      <td>{{ pastille_etat(c.etat) }}{% if c.message %}<br><small class="doux">{{ c.message }}</small>{% endif %}</td>
+      <td class="num" data-libelle="{{ _('Temps') }}">{{ _("{n} ms", n=c.latence) if c.latence is not none else "—" }}</td>
+      <td data-libelle="{{ _('Dernier test') }}">{{ (c.teste_le or "—")[:16] | replace('T', ' ') }}</td>
+      <td class="num" data-libelle="{{ _('Réponses') }}">{{ c.ok }}</td><td class="num" data-libelle="{{ _('Absents') }}">{{ c.absent }}</td><td class="num" data-libelle="{{ _('Erreurs') }}">{{ c.erreur }}</td>
+      <td class="ligne"><details class="edition"><summary>{{ _("Réglages") }}</summary>
+        <form method="post" action="/admin/catalogues/{{ c.source }}" style="min-width:240px">
+          <label class="case"><input type="checkbox" name="actif" value="1" {{ 'checked' if c.actif }}> <span>{{ _("Interroger ce catalogue") }}</span></label>
+          {% if c.cle_nom %}
+          <div class="champ"><label>{{ _("Clé") }}</label>
+            <input type="password" name="cle" autocomplete="off" placeholder="{{ _('clé enregistrée — laisser vide pour la garder') if c.cle_presente else '' }}">
+            <small>{{ _(c.aide) }}</small></div>
+          {% if c.cle_presente %}<label class="case"><input type="checkbox" name="effacer" value="1"> <span>{{ _("Effacer la clé") }}</span></label>{% endif %}
+          {% endif %}
+          <button class="petit">{{ _("Enregistrer") }}</button>
+        </form></details></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+
+{% elif onglet == 'acces' %}
+<div class="deux-colonnes">
+  <section class="carte">
+    <h2>{{ _("Clé des QR codes") }}</h2>
+    <p class="doux" style="font-size:.9rem">{{ _("Le QR code « Scanner » donne le rôle Bibliothécaire à tout téléphone qui le lit, sans compte. Une fois les comptes créés, vous pouvez la couper.") }}</p>
+    <p>{% if qr_coupe %}<span class="etat-source desactive">{{ _("Coupée") }}</span>{% else %}<span class="etat-source ok">{{ _("Active") }}</span>{% endif %}</p>
+    <form method="post" action="/admin/acces/qr" class="ligne-form">
+      {% if qr_coupe %}<button name="action" value="retablir">{{ _("Rétablir") }}</button>
+      {% else %}<button name="action" value="couper" class="danger" onclick='return confirm({{ _("Couper la clé des QR codes ? Les téléphones sans compte n’auront plus accès.") | tojson }})'>{{ _("Couper") }}</button>{% endif %}
+      <button name="action" value="changer" onclick='return confirm({{ _("Changer la clé ? Tous les téléphones devront rescanner le QR code.") | tojson }})'>{{ _("Changer la clé") }}</button>
+      <a class="bouton" href="/telephone">{{ _("Page Téléphone") }}</a>
+    </form>
+  </section>
+  <section class="carte">
+    <h2>{{ _("Clé admin") }}</h2>
+    <p class="doux" style="font-size:.9rem">{{ _("Pour votre ordinateur quand la bibliothèque tourne sur un serveur sans écran. Elle se donne en ligne de commande : biblio phone --admin.") }}</p>
+    <p>{% if cle_admin_existe %}<span class="etat-source ok">{{ _("Créée") }}</span>{% else %}<span class="etat-source desactive">{{ _("Pas encore créée") }}</span>{% endif %}</p>
+    {% if cle_admin_existe %}<form method="post" action="/admin/acces/cle-admin" onsubmit='return confirm({{ _("Changer la clé admin ? Les navigateurs qui l’avaient perdront l’accès.") | tojson }})'>
+      <button>{{ _("Changer la clé admin") }}</button></form>{% endif %}
+  </section>
+  <section class="carte">
+    <h2>{{ _("Cet ordinateur") }}</h2>
+    <p class="doux" style="font-size:.9rem;margin-bottom:0">{{ _("L'accès par localhost reste administrateur sans connexion : c'est la porte de secours (par le tunnel SSH sur un serveur). Quiconque y a accès pourrait de toute façon lire le fichier de la base.") }}</p>
+  </section>
+  <section class="carte">
+    <h2>{{ _("Certificats") }}</h2>
+    <dl class="infos">
+      <dt>{{ _("Autorité locale") }}</dt><dd>{{ _("valable jusqu'au {date}", date=g.certificats.ca_expire) if g.certificats.ca_expire else _("pas encore créée") }}</dd>
+      <dt>{{ _("Certificat du serveur") }}</dt><dd>{{ _("valable jusqu'au {date}", date=g.certificats.serveur_expire) if g.certificats.serveur_expire else _("pas encore créé") }}</dd>
+    </dl>
+    <p class="doux" style="font-size:.85rem;margin-bottom:0">{{ _("En simple lecture : rien ici ne peut les remplacer.") }}</p>
+  </section>
+</div>
+
+{% elif onglet == 'journal' %}
+<table class="table empilee">
+  <thead><tr><th>{{ _("Date") }}</th><th>{{ _("Événement") }}</th><th>{{ _("Qui") }}</th><th>{{ _("Détail") }}</th><th>{{ _("Adresse") }}</th></tr></thead>
+  <tbody>{% for l in lignes %}
+    <tr class="{{ 'alerte' if l.action in ('echec', 'blocage') }}"><td class="ligne">{{ l.le[:16] | replace('T', ' ') }}</td><td>{{ _(NOMS_ACTIONS.get(l.action, l.action)) }}</td>
+      <td>{{ l.acteur or '' }}</td><td>{{ l.detail or '' }}</td><td><code>{{ l.ip or '' }}</code></td></tr>
+  {% else %}<tr><td colspan="5" class="doux">{{ _("Rien pour l'instant.") }}</td></tr>{% endfor %}</tbody>
+</table>
+<p class="doux" style="font-size:.85rem">{{ _("Conservé 90 jours. Jamais de code ni de clé ici.") }}</p>
+
+{% elif onglet == 'systeme' %}
+<div class="deux-colonnes">
+  <section class="carte">
+    <div class="entete-note"><h2>{{ _("Sauvegardes") }}</h2>
+      <form method="post" action="/admin/systeme/sauvegarder"><button class="principal petit">{{ _("Sauvegarder maintenant") }}</button></form></div>
+    <table class="table" style="border:0"><tbody>
+      {% for c in copies %}<tr><td>{{ c.le[:16] | replace('T', ' ') }}</td><td class="num">{{ octets(c.taille) }}</td>
+        <td class="ligne"><a href="/admin/systeme/sauvegardes/{{ c.nom | urlencode }}">{{ _("Télécharger") }}</a></td></tr>
+      {% else %}<tr><td class="doux">{{ _("Aucune copie pour l'instant.") }}</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <section class="carte">
+    <h2>{{ _("Données") }}</h2>
+    <p><a class="bouton" href="/export.xlsx">{{ _("Exporter en Excel") }}</a> <a class="bouton" href="/export.csv">CSV</a> <a class="bouton" href="/echanges">{{ _("Applis de lecture") }}</a></p>
+    <hr>
+    <h3>{{ _("Règles de classement") }}</h3>
+    <p class="doux" style="font-size:.9rem">{{ _("{n} réponses de catalogues conservées", n=nb_raw) }}. {{ _("Aucune requête réseau : tout est relu depuis les réponses stockées.") }}</p>
+    <form method="post" action="/admin/systeme/reclasser"><button>{{ _("Recalculer toutes les cotes") }}</button></form>
+    <hr>
+    <h3>{{ _("Recherches en échec") }}</h3>
+    <p class="doux" style="font-size:.9rem">{{ _("{n} en échec", n=nb_echecs) }}</p>
+    <form method="post" action="/admin/systeme/relancer"><button>{{ _("Relancer") }}</button></form>
+  </section>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if onglet == 'catalogues' %}<script src="/static/admin.js?v={{ empreinte_statique }}"></script>{% endif %}
+{% endblock %}

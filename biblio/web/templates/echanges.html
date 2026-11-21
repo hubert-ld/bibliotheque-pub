@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Applis de lecture") }}{% endblock %}
+{% macro valeur(champ, v) %}{% if champ == "lecture" %}{{ _(NOMS_LECTURES[v]) }}{% else %}{{ "★" * v }}{% endif %}{% endmacro %}
+{% block content %}
+<h1>{{ _("Applis de lecture") }}</h1>
+
+{% if apercu %}
+<section class="carte" id="apercu" style="margin-bottom:1rem">
+  <h2>{{ _("Aperçu de l'import Babelio") }}</h2>
+  <p class="doux">{{ _("Rien n'est encore modifié.") }} {{ pluriel(apercu.lignes, "{n} ligne dans le fichier.", "{n} lignes dans le fichier.") }}</p>
+  <dl class="infos">
+    <dt>{{ _("Statuts à importer") }}</dt><dd>{{ apercu.statuts }}</dd>
+    <dt>{{ _("Notes à importer") }}</dt><dd>{{ apercu.notes }}</dd>
+    {% if apercu.arrondies %}<dt>{{ _("Demi-étoiles arrondies au-dessus") }}</dt><dd>{{ apercu.arrondies }}</dd>{% endif %}
+    {% if apercu.par_titre %}<dt>{{ _("Trouvés par titre et auteur (autre édition)") }}</dt><dd>{{ apercu.par_titre }}</dd>{% endif %}
+    <dt>{{ _("Livres sans changement") }}</dt><dd>{{ apercu.a_jour }}</dd>
+  </dl>
+  {% if apercu.statuts_inconnus %}<p class="doux">{{ _("Statuts inconnus, ignorés :") }} {{ apercu.statuts_inconnus | join(", ") }}</p>{% endif %}
+
+  {% if apercu.desaccords %}
+  <h3>{{ _("Désaccords ({n})", n=apercu.desaccords | length) }}</h3>
+  <p class="doux" style="font-size:.9rem">{{ _("Votre bibliothèque est conservée. Pour prendre la valeur de Babelio, renvoyez le fichier en cochant la case prévue.") }}</p>
+  <table class="table"><thead><tr><th>{{ _("Livre") }}</th><th>{{ _("Ici") }}</th><th>Babelio</th></tr></thead><tbody>
+    {% for d in apercu.desaccords %}<tr><td><a href="/livre/{{ d.reference }}">{{ d.titre or d.reference }}</a></td><td>{{ valeur(d.champ, d.ici) }}</td><td>{{ valeur(d.champ, d.babelio) }}</td></tr>{% endfor %}
+  </tbody></table>
+  {% endif %}
+
+  {% if apercu.absents %}
+  <h3>{{ _("Absents de votre bibliothèque ({n})", n=apercu.absents | length) }}</h3>
+  <p class="doux" style="font-size:.9rem">{{ _("Ignorés : Babelio contient aussi des livres lus sans être possédés.") }}</p>
+  <table class="table"><thead><tr><th>ISBN</th><th>{{ _("Livre") }}</th><th>{{ _("Auteur") }}</th></tr></thead><tbody>
+    {% for a in apercu.absents %}<tr><td>{{ a.isbn }}</td><td>{{ a.titre }}</td><td>{{ a.auteur }}</td></tr>{% endfor %}
+  </tbody></table>
+  {% endif %}
+
+  <div class="ligne-form" style="margin-top:1rem">
+    {% if apercu.statuts or apercu.notes %}
+    <form method="post" action="/echanges/babelio/appliquer">
+      <input type="hidden" name="contenu" value="{{ contenu }}">
+      {% if ecraser %}<input type="hidden" name="ecraser" value="1">{% endif %}
+      <button class="principal">{{ _("Appliquer") }}</button>
+    </form>
+    {% else %}<p>{{ _("Rien à importer.") }}</p>{% endif %}
+    <a class="bouton" href="/echanges">{{ _("← Retour") }}</a>
+  </div>
+</section>
+{% endif %}
+
+<div class="deux-colonnes">
+  <form method="get" class="carte" id="export-appli">
+    <h2>{{ _("Exporter vers une appli") }}</h2>
+    <p class="doux" style="font-size:.9rem">{{ _("Un fichier CSV à déposer dans l'appli. Vos notes personnelles, prix et prêts n'y figurent pas.") }}</p>
+    {# Option placée avant les boutons qu'elle modifie ; son nombre évite de télécharger un fichier vide #}
+    <label class="case"><input type="checkbox" name="statut" value="1" id="option-statut">
+      <span>{{ _("Seulement les livres avec un état de lecture ({n} sur {total})", n=bilan_statut.goodreads, total=bilan.goodreads) }}</span></label>
+    <small class="doux aide-case">{{ _("Sinon, les livres sans état de lecture partent en « à lire », car ces formats en demandent un.") }}</small>
+    <p class="flash err" id="option-vide" hidden>{{ _("Aucun livre n'a encore d'état de lecture : le fichier serait vide. L'état se règle sur la fiche de chaque livre, ou par l'import depuis Babelio.") }}</p>
+    {# Ces textes changent avec l'option : data-tous sans elle, data-statut avec elle (vide : la ligne disparaît) #}
+    <h3>Goodreads</h3>
+    <p class="doux" style="font-size:.9rem">{{ _("Pour Book Tracker, StoryGraph, Hardcover et les autres applis qui acceptent ce format.") }} <span data-tous="{{ pluriel(bilan.goodreads, "{n} livre.", "{n} livres.") }}" data-statut="{{ pluriel(bilan_statut.goodreads, "{n} livre.", "{n} livres.") }}">{{ pluriel(bilan.goodreads, "{n} livre.", "{n} livres.") }}</span></p>
+    {% if bilan.sans_titre %}<p class="doux" style="font-size:.9rem" data-tous="{{ pluriel(bilan.sans_titre, "{n} livre sans titre laissé de côté.", "{n} livres sans titre laissés de côté.") }}"
+       data-statut="{{ pluriel(bilan_statut.sans_titre, "{n} livre sans titre laissé de côté.", "{n} livres sans titre laissés de côté.") if bilan_statut.sans_titre }}">{{ pluriel(bilan.sans_titre, "{n} livre sans titre laissé de côté.", "{n} livres sans titre laissés de côté.") }}</p>{% endif %}
+    <label class="case"><input type="checkbox" name="avec_lieux" value="1" checked>
+      <span>{{ _("Indiquer les emplacements dans la colonne Bookshelves") }}</span></label>
+    <small class="doux aide-case">{{ _("Selon l'appli, ces étagères peuvent être visibles par d'autres lecteurs.") }}</small>
+    <p><button formaction="/export.goodreads" data-nb-statut="{{ bilan_statut.goodreads }}">{{ _("Télécharger le fichier Goodreads") }}</button></p>
+    <h3>Babelio</h3>
+    <p class="doux" style="font-size:.9rem">{{ _("Au modèle de Babelio, avec statut, note et date de fin de lecture. À déposer dans Ajouter des livres, Importer votre bibliothèque depuis un fichier.") }} <span data-tous="{{ pluriel(bilan.babelio, "{n} livre.", "{n} livres.") }}" data-statut="{{ pluriel(bilan_statut.babelio, "{n} livre.", "{n} livres.") }}">{{ pluriel(bilan.babelio, "{n} livre.", "{n} livres.") }}</span></p>
+    {% if bilan.sans_code %}<p class="doux" style="font-size:.9rem" data-tous="{{ pluriel(bilan.sans_code, "{n} livre sans ISBN ni EAN laissé de côté.", "{n} livres sans ISBN ni EAN laissés de côté.") }}"
+       data-statut="{{ pluriel(bilan_statut.sans_code, "{n} livre sans ISBN ni EAN laissé de côté.", "{n} livres sans ISBN ni EAN laissés de côté.") if bilan_statut.sans_code }}">{{ pluriel(bilan.sans_code, "{n} livre sans ISBN ni EAN laissé de côté.", "{n} livres sans ISBN ni EAN laissés de côté.") }}</p>{% endif %}
+    {% if bilan.babelio > bilan.limite_babelio %}<p class="doux" style="font-size:.9rem" data-tous="{{ _("Babelio accepte {n} lignes par import : découpez ce fichier avant de l'envoyer.", n=bilan.limite_babelio) }}"
+       data-statut="{{ _("Babelio accepte {n} lignes par import : découpez ce fichier avant de l'envoyer.", n=bilan.limite_babelio) if bilan_statut.babelio > bilan.limite_babelio }}">{{ _("Babelio accepte {n} lignes par import : découpez ce fichier avant de l'envoyer.", n=bilan.limite_babelio) }}</p>{% endif %}
+    <p><button formaction="/export.babelio" data-nb-statut="{{ bilan_statut.babelio }}">{{ _("Télécharger le fichier Babelio") }}</button></p>
+  </form>
+
+  <form method="post" action="/echanges/babelio" enctype="multipart/form-data" class="carte">
+    <h2>{{ _("Importer depuis Babelio") }}</h2>
+    <p class="doux" style="font-size:.9rem">{{ _("Récupère vos statuts et vos notes. Sur Babelio : Paramètres, puis Exporter ma bibliothèque.") }}</p>
+    <div class="champ"><label>{{ _("Fichier CSV de Babelio") }}</label><input type="file" name="fichier" accept=".csv,text/csv" required></div>
+    <label class="case"><input type="checkbox" name="ecraser" value="1"> <span>{{ _("En cas de désaccord, prendre la valeur de Babelio") }}</span></label>
+    <p class="doux" style="font-size:.85rem">{{ _("Vous verrez un aperçu avant toute modification, et la base est sauvegardée avant l'import.") }}</p>
+    <button class="principal">{{ _("Voir l'aperçu") }}</button>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Option « seulement avec un état de lecture » : les nombres suivent, et pas de téléchargement d'un fichier vide
+  (function () {
+    const form = document.getElementById("export-appli"), option = document.getElementById("option-statut");
+    function maj() {
+      const seul = option.checked;
+      form.querySelectorAll("[data-tous]").forEach((el) => {
+        el.textContent = seul ? el.dataset.statut : el.dataset.tous;
+        el.hidden = !el.textContent;
+      });
+      const boutons = form.querySelectorAll("[data-nb-statut]");
+      boutons.forEach((b) => { b.disabled = seul && b.dataset.nbStatut === "0"; });
+      document.getElementById("option-vide").hidden = !(seul && [...boutons].every((b) => b.disabled));
+    }
+    option.addEventListener("change", maj);
+    maj();          // le navigateur peut garder la case cochée au retour sur la page
+  })();
+</script>
+{% endblock %}

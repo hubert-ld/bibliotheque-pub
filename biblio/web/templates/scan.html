@@ -5,7 +5,11 @@
   <section class="carte">
     <div class="entete-scan">
       <h1>{{ _("Poste de scan") }}</h1>
-      <button type="button" class="petit" id="camera-ouvrir" hidden>{{ _("Caméra") }}</button>
+    </div>
+    <div class="saisies" role="group" aria-label="{{ _('Comment scanner') }}">
+      <button type="button" data-saisie="douchette">{{ _("Douchette") }}</button>
+      <button type="button" data-saisie="camera" id="camera-ouvrir" hidden>{{ _("Caméra") }}</button>
+      <button type="button" data-saisie="main">{{ _("À la main") }}</button>
     </div>
     <div class="camera" id="camera" hidden>
       <div class="camera-video">
@@ -17,6 +21,9 @@
             <span id="cam-mode">{{ _("Ajouter") }}</span><span id="cam-place">{{ _("Non localisé") }}</span>
           </button>
           <div class="cam-icones">
+            <button type="button" class="icone" id="camera-son" aria-label="{{ _('Bips sonores') }}" title="{{ _('Bips sonores') }}">
+              <svg class="si-son" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+              <svg class="si-muet" viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg></button>
             <button type="button" class="icone" id="camera-lampe" hidden aria-label="{{ _('Lampe') }}" title="{{ _('Lampe') }}">
               <svg viewBox="0 0 24 24"><path d="M8 2h8v4l-2 4v11a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V10L8 6z"/><path d="M8 6h8M12 14v2"/></svg></button>
             <button type="button" class="icone" id="camera-changer" hidden aria-label="{{ _('Changer de caméra') }}" title="{{ _('Changer de caméra') }}">
@@ -34,7 +41,6 @@
             <option value="ajout">{{ _("Ajouter") }}</option><option value="deplacement">{{ _("Déplacer") }}</option>
             <option value="ou">{{ _("Où est-il ?") }}</option><option value="inventaire">{{ _("Inventaire") }}</option></select></label>
           <label>{{ _("Emplacement") }}<select id="cam-choix-place"></select></label>
-          <label class="cam-case"><input type="checkbox" id="cam-son"> {{ _("Bips sonores") }}</label>
           <button type="button" class="principal" id="cam-reglages-ok">OK</button>
         </div>
 
@@ -77,6 +83,10 @@
         <label for="etagere">{{ _("Étagère") }}</label>
         <select id="etagere"><option value="">—</option></select>
       </div>
+      <div class="champ" id="champ-rangee" hidden>
+        <label for="rangee">{{ _("Rangée") }}</label>
+        <select id="rangee"><option value="">—</option></select>
+      </div>
     </div>
 
     <div class="inventaire-panneau">
@@ -98,15 +108,7 @@
       </div>
     </div>
 
-    <form id="form-scan" autocomplete="off" style="margin-top:.5rem">
-      <input id="code" class="saisie-scan" type="text" inputmode="numeric" placeholder="{{ _('Scannez un livre…') }}"
-             aria-label="{{ _('Code-barres ou ISBN') }}" enterkeyhint="go">
-    </form>
-    <p class="aide-scan">{{ _("La douchette tape le code puis Entrée : rien d'autre à faire. Le livre est enregistré tout de suite, sa description arrive quelques secondes plus tard.") }}</p>
-    <p class="aide-scan"><a id="lien-manuel" href="/manuel">{{ _("Pas de code-barre ? Ajouter le livre à la main") }}</a></p>
-
-    <p class="flash err file-scan" id="file-scan" hidden></p>
-    <div class="compteurs">
+    <div class="compteurs" id="compteurs-scan" hidden>
       <div><b id="nb-scans">0</b><span>{{ _("scans") }}</span></div>
       <div><b id="nb-ok">0</b><span>{{ _("réussis") }}</span></div>
       <div><b id="nb-alertes">0</b><span>{{ _("alertes") }}</span></div>
@@ -114,6 +116,18 @@
     <p class="ligne-form" style="margin-top:1rem;justify-content:space-between">
       <label class="doux" style="font-size:.85rem"><input type="checkbox" id="son" checked> {{ _("Bips sonores") }}</label>
     </p>
+
+    <p class="voyant seulement-douchette"><span class="point"></span><span id="voyant-texte"></span></p>
+    <form id="form-scan" autocomplete="off" style="margin-top:.5rem">
+      <input id="code" class="saisie-scan" type="text" inputmode="numeric" placeholder="{{ _('Scannez un livre…') }}"
+             aria-label="{{ _('Code-barres, ISBN ou EAN') }}" enterkeyhint="go"
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button type="submit" class="principal seulement-main">{{ _("Valider") }}</button>
+    </form>
+    <p class="aide-scan masquer-telephone seulement-douchette">{{ _("La douchette tape le code puis Entrée : rien d'autre à faire. Le livre est enregistré tout de suite, sa description arrive quelques secondes plus tard.") }}</p>
+    <p class="aide-scan seulement-douchette"><button type="button" class="petit" id="poche-ouvrir">{{ _("Mode poche") }}</button></p>
+    {% if peut("scanner") %}<p class="aide-scan seulement-main"><a id="lien-manuel" class="bouton petit" href="/manuel">{{ _("Pas de code-barre ? Ajouter le livre à la main") }}</a></p>{% endif %}
+    <p class="flash err file-scan" id="file-scan" hidden></p>
   </section>
 
   <section>
@@ -124,13 +138,19 @@
     <div class="flux" id="flux">
       <div class="vide-etat" id="flux-vide">
         <h2>{{ _("Prêt à scanner") }}</h2>
-        <p>{{ _("Visez le code-barres au dos du livre (EAN commençant par 978 ou 979).") }}</p>
+        <p>{{ _("Visez le code-barres au dos du livre, du disque ou du film, ou l'étiquette d'une étagère pour choisir l'emplacement.") }}</p>
       </div>
     </div>
   </section>
 </div>
 <div class="flash-ecran" id="flash-ecran"></div>
+<div class="poche" id="poche" hidden>
+  <p id="poche-compteur"></p>
+  <p id="poche-alerte" class="poche-alerte" hidden></p>
+  <p>{{ _("Maintenez le doigt 2 secondes pour quitter") }}</p>
+</div>
 <script id="lieux-data" type="application/json">{{ lieux | tojson }}</script>
+<script id="droits-scan" type="application/json">{{ {"scanner": peut("scanner")} | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="/static/scan.js?v={{ version }}"></script>
-<script src="/static/camera.js?v={{ version }}"></script>{% endblock %}
+{% block scripts %}<script src="/static/scan.js?v={{ empreinte_statique }}"></script>
+<script src="/static/camera.js?v={{ empreinte_statique }}"></script>{% endblock %}

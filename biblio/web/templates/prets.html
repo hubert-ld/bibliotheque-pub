@@ -6,7 +6,7 @@
 <table class="table empilee">
   <thead><tr><th>{{ _("Livre") }}</th><th>{{ _("Emprunteur") }}</th><th>{{ _("Depuis") }}</th><th></th></tr></thead>
   <tbody>{% for p in prets %}
-    <tr><td class="large"><a class="titre" href="/livre/{{ p.notice_id }}">{{ p.titre or p.reference }}</a> <span class="doux">{{ p.auteurs | auteurs }}</span></td>
+    <tr><td class="large"><a class="titre" href="/livre/{{ p.notice_id }}">{{ p.titre or p.reference }}</a> <span class="doux">{{ p.auteurs | join(', ') }}</span></td>
       <td>{{ p.emprunteur }}</td><td>{{ p.date_pret[:10] }}</td>
       <td style="width:1%"><form method="post" action="/exemplaire/{{ p.exemplaire_id }}/rendre"><button class="petit">{{ _("Rendu") }}</button></form></td></tr>
   {% endfor %}</tbody>

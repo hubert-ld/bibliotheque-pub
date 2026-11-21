@@ -14,7 +14,7 @@ class IsbnError(ValueError):
     """Code illisible ou qui n'est pas un ISBN."""
 
 
-def _check13(digits: str) -> bool:
+def check13(digits: str) -> bool:
     total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(digits[:12]))
     return (10 - total % 10) % 10 == int(digits[12])
 
@@ -44,17 +44,31 @@ def to10(isbn13: str) -> str | None:
 
 
 # Douchette réglée en QWERTY sur un Mac/PC AZERTY : la rangée des chiffres
-# arrive sans Maj, soit « &é"'(§è!çà » (Mac) ou « &é"'(-è_çà » (PC).
-AZERTY = str.maketrans({"&": "1", "é": "2", '"': "3", "'": "4", "(": "5", "§": "6",
-                        "-": "6", "è": "7", "!": "8", "_": "8", "ç": "9", "à": "0"})
+# arrive sans Maj, soit « &é"'(§è!çà » (Mac, iPhone) ou « &é"'(-è_çà » (PC, Android).
+# Un téléphone peut aussi retoucher la frappe : majuscule en début de champ (Ç), guillemets
+# et apostrophes typographiques. Même table dans scan.js.
+AZERTY = str.maketrans({"&": "1", "é": "2", "É": "2", '"': "3", "“": "3", "”": "3", "«": "3", "»": "3",
+                        "'": "4", "’": "4", "‘": "4", "(": "5", "§": "6", "-": "6", "è": "7", "È": "7",
+                        "!": "8", "_": "8", "ç": "9", "Ç": "9", "à": "0", "À": "0"})
+
+
+def sans_azerty(raw: str) -> str:
+    """Le code lu, avec des chiffres s'il vient d'une douchette en QWERTY ; sinon tel quel."""
+    raw = raw or ""
+    if not re.search(r"\d", raw) and re.search(r"[&éÉ\"“”«»'’‘(§èÈ!_çÇàÀ]", raw):
+        return raw.translate(AZERTY)
+    return raw
+
+
+def caracteres(raw: str) -> str:
+    """Les chiffres (et X) d'un code lu, après la correction de la douchette en QWERTY."""
+    return re.sub(r"[^0-9Xx]", "", sans_azerty(raw)).upper()
 
 
 def normalize(raw: str) -> str:
     """Renvoie l'ISBN-13 correspondant au code scanné, ou lève IsbnError."""
     raw = raw or ""
-    if not re.search(r"\d", raw) and re.search(r"[&é\"'(§è!_çà]", raw):
-        raw = raw.translate(AZERTY)
-    chars = re.sub(r"[^0-9Xx]", "", raw).upper()
+    chars = caracteres(raw)
     if not chars:
         raise IsbnError(tr("code vide"))
 
@@ -69,7 +83,7 @@ def normalize(raw: str) -> str:
             raise IsbnError(tr("{code} : code ISSN (revue ou magazine), pas un livre", code=chars))
         if not chars.startswith(("978", "979")):
             raise IsbnError(tr("{code} : code-barres produit, pas un ISBN", code=chars))
-        if not _check13(chars):
+        if not check13(chars):
             raise IsbnError(tr("{code} : clé de contrôle fausse (mauvaise lecture ?)", code=chars))
         return chars
 

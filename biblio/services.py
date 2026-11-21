@@ -1,9 +1,9 @@
 """Logique métier partagée par la CLI et l'appli web.
 
 Vocabulaire :
-  notice        description d'un livre (numéro propre ; ISBN s'il en a un)
-  référence     ce qui désigne une notice pour l'utilisateur : son ISBN, ou L + son numéro (L12)
-  exemplaire    objet physique, rangé dans un lieu (Salon) et une étagère (Étagère 3)
+  notice        description d'un livre, d'un disque ou d'un film (numéro propre ; ISBN ou EAN s'il en a un)
+  référence     ce qui désigne une notice pour l'utilisateur : son ISBN, son EAN, ou L + son numéro (L12)
+  exemplaire    objet physique, rangé dans un lieu (Salon), une étagère (Étagère 3) et une rangée (Devant)
   personne      propriétaire, prêteur ou emprunteur ; moi = la personne qui possède cette base
 
 Les fonctions acceptent le numéro d'une notice, ou sa référence.
@@ -16,19 +16,26 @@ from urllib.parse import urlencode
 
 from . import db
 from .classify import SYSTEMES, classer_notice, libelle, norm, systeme_courant
-from .i18n import tr
-from .isbn import IsbnError, normalize
+from .codes import analyser
+from .i18n import pluriel, tr
+from .isbn import IsbnError
 
 REBOND_SECONDES = 4          # deux lectures du même code en moins de 4 s = un seul livre
 # Personnels : datés comme les corrections, mais jamais partagés ni protégés des catalogues
 CHAMPS_PERSONNELS = {"notes", "lecture", "lecture_debut", "lecture_fin", "etoiles"}
 CHAMPS_MODIFIABLES = {"titre", "sous_titre", "auteurs", "editeur", "collection", "annee",
                       "pages", "langue", "langue_originale", "resume", "sujets", "forme",
-                      "public", "couverture_url"} | CHAMPS_PERSONNELS
+                      "public", "couverture_url", "support", "ref_catalogue", "duree",
+                      "nb_disques"} | CHAMPS_PERSONNELS
 CHAMPS_EXEMPLAIRE = {"etat", "prix_achat", "date_achat", "provenance", "dedicace", "valeur", "notes"}
 FORMES = ["fiction", "nouvelles", "poesie", "theatre", "essai", "documentaire", "humour",
           "lettres", "mixte"]
 PUBLICS = ["adulte", "ado", "jeunesse"]
+SUPPORTS = ["livre", "cd", "vinyle", "cassette", "dvd", "bluray", "inconnu"]
+NOMS_SUPPORTS = {"livre": "Livre", "cd": "CD", "vinyle": "Vinyle", "cassette": "Cassette", "dvd": "DVD",
+                 "bluray": "Blu-ray", "inconnu": "Support à préciser"}
+MUSIQUE = ("cd", "vinyle", "cassette")
+FILMS = ("dvd", "bluray")
 LECTURES = ["a_lire", "en_cours", "lu", "abandonne"]
 NOMS_LECTURES = {"a_lire": "À lire", "en_cours": "En cours", "lu": "Lu", "abandonne": "Abandonné"}
 ETATS = ["neuf", "tres_bon", "bon", "moyen", "abime"]
@@ -56,6 +63,11 @@ def personne_id(conn, nom: str, creer: bool = True) -> int | None:
         return None
     return conn.execute("INSERT INTO personnes(uid, nom, cle, maj_le) VALUES (?, ?, ?, ?)",
                         (db.nouvel_uid(), nom, cle, db.horodatage())).lastrowid
+
+
+def bibliothecaire_local(conn) -> str:
+    """Qui scanne depuis cet ordinateur, la clé admin ou la ligne de commande."""
+    return db.get_meta(conn, "bibliothecaire") or proprietaire_local(conn)
 
 
 def proprietaire_local(conn) -> str:
@@ -119,7 +131,11 @@ def lieux(conn) -> list[dict]:
                                (lieu["id"],)).fetchone()[0]
         d["etageres"] = [
             dict(e, nb=conn.execute("SELECT count(*) FROM exemplaires WHERE etagere_id = ?",
-                                    (e["id"],)).fetchone()[0])
+                                    (e["id"],)).fetchone()[0],
+                 rangees=[dict(r, nb=conn.execute("SELECT count(*) FROM exemplaires WHERE rangee_id = ?",
+                                                  (r["id"],)).fetchone()[0])
+                          for r in conn.execute("SELECT * FROM rangees WHERE etagere_id = ? ORDER BY ordre, nom",
+                                                (e["id"],))])
             for e in conn.execute("SELECT * FROM etageres WHERE lieu_id = ? ORDER BY ordre, nom",
                                   (lieu["id"],))
         ]
@@ -138,8 +154,8 @@ def creer_lieu(conn, nom: str, description: str | None = None) -> int:
         raise Erreur(tr("nom de lieu vide"))
     try:
         ordre = conn.execute("SELECT coalesce(max(ordre), 0) + 1 FROM lieux").fetchone()[0]
-        cur = conn.execute("INSERT INTO lieux(uid, nom, description, ordre, maj_le) VALUES (?, ?, ?, ?, ?)",
-                           (db.nouvel_uid(), nom, description, ordre, db.horodatage()))
+        cur = conn.execute("INSERT INTO lieux(uid, nom, description, ordre, etiquette, maj_le) VALUES (?, ?, ?, ?, ?, ?)",
+                           (db.nouvel_uid(), nom, description, ordre, db.nouvelle_etiquette(conn, "lieux"), db.horodatage()))
     except sqlite3.IntegrityError:
         raise Erreur(tr("le lieu « {nom} » existe déjà", nom=nom))
     conn.commit()
@@ -161,12 +177,15 @@ def renommer_lieu(conn, lieu_id: int, nom: str, description: str | None = None) 
 def supprimer_lieu(conn, lieu_id: int) -> int:
     """Supprime le lieu ; ses exemplaires deviennent « non localisés »."""
     n = conn.execute("SELECT count(*) FROM exemplaires WHERE lieu_id = ?", (lieu_id,)).fetchone()[0]
+    for row in conn.execute("SELECT r.uid FROM rangees r JOIN etageres e ON e.id = r.etagere_id WHERE e.lieu_id = ?",
+                            (lieu_id,)).fetchall():
+        tracer_suppression(conn, row["uid"], "rangee")
     for row in conn.execute("SELECT uid FROM etageres WHERE lieu_id = ?", (lieu_id,)).fetchall():
         tracer_suppression(conn, row["uid"], "etagere")
     lieu = conn.execute("SELECT uid FROM lieux WHERE id = ?", (lieu_id,)).fetchone()
     if lieu:
         tracer_suppression(conn, lieu["uid"], "lieu")
-    conn.execute("UPDATE exemplaires SET lieu_id = NULL, etagere_id = NULL, maj_le = ? WHERE lieu_id = ?",
+    conn.execute("UPDATE exemplaires SET lieu_id = NULL, etagere_id = NULL, rangee_id = NULL, maj_le = ? WHERE lieu_id = ?",
                  (db.horodatage(), lieu_id))
     conn.execute("DELETE FROM lieux WHERE id = ?", (lieu_id,))
     conn.commit()
@@ -180,8 +199,8 @@ def creer_etagere(conn, lieu_id: int, nom: str) -> int:
     try:
         ordre = conn.execute("SELECT coalesce(max(ordre), 0) + 1 FROM etageres WHERE lieu_id = ?",
                              (lieu_id,)).fetchone()[0]
-        cur = conn.execute("INSERT INTO etageres(uid, lieu_id, nom, ordre, maj_le) VALUES (?, ?, ?, ?, ?)",
-                           (db.nouvel_uid(), lieu_id, nom, ordre, db.horodatage()))
+        cur = conn.execute("INSERT INTO etageres(uid, lieu_id, nom, ordre, etiquette, maj_le) VALUES (?, ?, ?, ?, ?, ?)",
+                           (db.nouvel_uid(), lieu_id, nom, ordre, db.nouvelle_etiquette(conn, "etageres"), db.horodatage()))
     except sqlite3.IntegrityError:
         raise Erreur(tr("l'étagère « {nom} » existe déjà dans ce lieu", nom=nom))
     conn.commit()
@@ -203,33 +222,81 @@ def supprimer_etagere(conn, etagere_id: int) -> None:
     etagere = conn.execute("SELECT uid FROM etageres WHERE id = ?", (etagere_id,)).fetchone()
     if etagere:
         tracer_suppression(conn, etagere["uid"], "etagere")
-    conn.execute("UPDATE exemplaires SET etagere_id = NULL, maj_le = ? WHERE etagere_id = ?",
+    for row in conn.execute("SELECT uid FROM rangees WHERE etagere_id = ?", (etagere_id,)).fetchall():
+        tracer_suppression(conn, row["uid"], "rangee")
+    conn.execute("UPDATE exemplaires SET etagere_id = NULL, rangee_id = NULL, maj_le = ? WHERE etagere_id = ?",
                  (db.horodatage(), etagere_id))
     conn.execute("DELETE FROM etageres WHERE id = ?", (etagere_id,))
     conn.commit()
 
 
-def emplacement(conn, spec: str, creer: bool = False) -> tuple[int | None, int | None]:
-    """'Salon' ou 'Salon/Étagère 3' (séparateurs / > ›) -> (lieu_id, etagere_id)."""
+def creer_rangee(conn, etagere_id: int, nom: str) -> int:
+    nom = nom.strip()
+    if not nom:
+        raise Erreur(tr("nom de rangée vide"))
+    if not conn.execute("SELECT 1 FROM etageres WHERE id = ?", (etagere_id,)).fetchone():
+        raise Erreur(tr("étagère inconnue"))
+    try:
+        ordre = conn.execute("SELECT coalesce(max(ordre), 0) + 1 FROM rangees WHERE etagere_id = ?",
+                             (etagere_id,)).fetchone()[0]
+        cur = conn.execute("INSERT INTO rangees(uid, etagere_id, nom, ordre, etiquette, maj_le) VALUES (?, ?, ?, ?, ?, ?)",
+                           (db.nouvel_uid(), etagere_id, nom, ordre, db.nouvelle_etiquette(conn, "rangees"), db.horodatage()))
+    except sqlite3.IntegrityError:
+        raise Erreur(tr("la rangée « {nom} » existe déjà sur cette étagère", nom=nom))
+    conn.commit()
+    return cur.lastrowid
+
+
+def renommer_rangee(conn, rangee_id: int, nom: str) -> None:
+    nom = nom.strip()
+    if not nom:
+        raise Erreur(tr("nom de rangée vide"))
+    try:
+        conn.execute("UPDATE rangees SET nom = ?, maj_le = ? WHERE id = ?", (nom, db.horodatage(), rangee_id))
+    except sqlite3.IntegrityError:
+        raise Erreur(tr("la rangée « {nom} » existe déjà sur cette étagère", nom=nom))
+    conn.commit()
+
+
+def supprimer_rangee(conn, rangee_id: int) -> None:
+    """Supprime la rangée ; ses exemplaires restent sur l'étagère."""
+    rangee = conn.execute("SELECT uid FROM rangees WHERE id = ?", (rangee_id,)).fetchone()
+    if rangee:
+        tracer_suppression(conn, rangee["uid"], "rangee")
+    conn.execute("UPDATE exemplaires SET rangee_id = NULL, maj_le = ? WHERE rangee_id = ?",
+                 (db.horodatage(), rangee_id))
+    conn.execute("DELETE FROM rangees WHERE id = ?", (rangee_id,))
+    conn.commit()
+
+
+def emplacement(conn, spec: str, creer: bool = False) -> tuple[int | None, int | None, int | None]:
+    """'Salon', 'Salon/Étagère 3' ou 'Salon/Étagère 3/Devant' (séparateurs / > ›) -> (lieu_id, etagere_id, rangee_id)."""
     if not spec:
-        return None, None
+        return None, None, None
     entier = _par_nom(conn.execute("SELECT id, nom FROM lieux"), spec)
     if entier is not None:                         # un lieu nommé « Bureau/Chambre »
-        return entier, None
-    parts = [p.strip() for p in re.split(r"\s*[/>›]\s*", spec, maxsplit=1)]
+        return entier, None, None
+    parts = [p.strip() for p in re.split(r"\s*[/>›]\s*", spec, maxsplit=2)]
     lieu_id = _par_nom(conn.execute("SELECT id, nom FROM lieux"), parts[0])
     if lieu_id is None:
         if not creer:
             raise Erreur(tr("lieu inconnu : « {nom} »", nom=parts[0]))
         lieu_id = creer_lieu(conn, parts[0])
     if len(parts) == 1 or not parts[1]:
-        return lieu_id, None
+        return lieu_id, None, None
     etagere_id = _par_nom(conn.execute("SELECT id, nom FROM etageres WHERE lieu_id = ?", (lieu_id,)), parts[1])
-    if etagere_id is not None:
-        return lieu_id, etagere_id
-    if creer:
-        return lieu_id, creer_etagere(conn, lieu_id, parts[1])
-    raise Erreur(tr("étagère inconnue : « {etagere} » dans « {lieu} »", etagere=parts[1], lieu=parts[0]))
+    if etagere_id is None:
+        if not creer:
+            raise Erreur(tr("étagère inconnue : « {etagere} » dans « {lieu} »", etagere=parts[1], lieu=parts[0]))
+        etagere_id = creer_etagere(conn, lieu_id, parts[1])
+    if len(parts) == 2 or not parts[2]:
+        return lieu_id, etagere_id, None
+    rangee_id = _par_nom(conn.execute("SELECT id, nom FROM rangees WHERE etagere_id = ?", (etagere_id,)), parts[2])
+    if rangee_id is None:
+        if not creer:
+            raise Erreur(tr("rangée inconnue : « {rangee} » sur « {etagere} »", rangee=parts[2], etagere=parts[1]))
+        rangee_id = creer_rangee(conn, etagere_id, parts[2])
+    return lieu_id, etagere_id, rangee_id
 
 
 def _par_nom(rows, nom: str) -> int | None:
@@ -241,7 +308,7 @@ def _par_nom(rows, nom: str) -> int | None:
     return None
 
 
-def nom_emplacement(conn, lieu_id: int | None, etagere_id: int | None) -> str:
+def nom_emplacement(conn, lieu_id: int | None, etagere_id: int | None, rangee_id: int | None = None) -> str:
     if not lieu_id:
         return tr("Non localisé")
     lieu = conn.execute("SELECT nom FROM lieux WHERE id = ?", (lieu_id,)).fetchone()
@@ -250,6 +317,10 @@ def nom_emplacement(conn, lieu_id: int | None, etagere_id: int | None) -> str:
         et = conn.execute("SELECT nom FROM etageres WHERE id = ?", (etagere_id,)).fetchone()
         if et:
             nom += f" › {et['nom']}"
+    if rangee_id:
+        ra = conn.execute("SELECT nom FROM rangees WHERE id = ?", (rangee_id,)).fetchone()
+        if ra:
+            nom += f" › {ra['nom']}"
     return nom
 
 
@@ -258,10 +329,16 @@ def emplacement_exemplaire(conn, ex) -> str:
     if ex["proprietaire_id"] != db.moi_id(conn):
         chez = tr("chez {qui}", qui=ex["proprietaire"])
         return f"{chez} — {ex['lieu_texte']}" if ex["lieu_texte"] else chez
-    return nom_emplacement(conn, ex["lieu_id"], ex["etagere_id"])
+    return nom_emplacement(conn, ex["lieu_id"], ex["etagere_id"], ex["rangee_id"])
 
 
-def _verifier_emplacement(conn, lieu_id, etagere_id):
+def _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id=None):
+    """Complète et contrôle un emplacement : (lieu_id, etagere_id, rangee_id)."""
+    if rangee_id:
+        row = conn.execute("SELECT etagere_id FROM rangees WHERE id = ?", (rangee_id,)).fetchone()
+        if not row or (etagere_id and row["etagere_id"] != etagere_id):
+            raise Erreur(tr("cette rangée n'appartient pas à cette étagère"))
+        etagere_id = row["etagere_id"]
     if etagere_id and not lieu_id:
         row = conn.execute("SELECT lieu_id FROM etageres WHERE id = ?", (etagere_id,)).fetchone()
         lieu_id = row["lieu_id"] if row else None
@@ -269,20 +346,38 @@ def _verifier_emplacement(conn, lieu_id, etagere_id):
         row = conn.execute("SELECT lieu_id FROM etageres WHERE id = ?", (etagere_id,)).fetchone()
         if not row or row["lieu_id"] != lieu_id:
             raise Erreur(tr("cette étagère n'appartient pas à ce lieu"))
-    return lieu_id, etagere_id
+    return lieu_id, etagere_id, rangee_id
+
+
+def lire_etiquette(conn, code: str) -> dict:
+    """L'emplacement désigné par le code-barres d'une étiquette."""
+    from .etiquettes import decoder
+
+    try:
+        table, numero = decoder(code)
+    except IsbnError as exc:
+        raise Erreur(str(exc))
+    row = conn.execute(f"SELECT * FROM {table} WHERE etiquette = ?", (numero,)).fetchone()
+    if not row:
+        raise Erreur(tr("cette étiquette ne correspond à aucun emplacement"))
+    rangee_id = row["id"] if table == "rangees" else None
+    etagere_id = row["etagere_id"] if table == "rangees" else row["id"] if table == "etageres" else None
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, row["id"] if table == "lieux" else None, etagere_id, rangee_id)
+    return {"lieu_id": lieu_id, "etagere_id": etagere_id, "rangee_id": rangee_id,
+            "nom": nom_emplacement(conn, lieu_id, etagere_id, rangee_id)}
 
 
 # --- Notices ----------------------------------------------------------------------
 
 def _code(raw: str) -> str:
-    """Code tapé ou scanné -> ISBN-13, ou référence d'un livre sans ISBN (L12)."""
-    m = re.fullmatch(r"[Ll](\d+)", raw.strip())
-    if m:
-        return f"L{int(m.group(1))}"
+    """Code tapé ou scanné -> ISBN-13, EAN-13, ou référence d'une notice sans code-barres (L12)."""
     try:
-        return normalize(raw)
+        genre, code = analyser(raw)
     except IsbnError as exc:
         raise Erreur(str(exc))
+    if genre == "etiquette":
+        raise Erreur(tr("{code} : étiquette d'emplacement, pas un livre ni un disque", code=code))
+    return code
 
 
 def _id(conn, ref: int | str) -> int:
@@ -292,24 +387,28 @@ def _id(conn, ref: int | str) -> int:
     return notice_id
 
 
-def _nouvelle_notice(conn, isbn13: str | None, statut: str) -> int:
+def _nouvelle_notice(conn, code: str | None, statut: str, support: str = "livre") -> int:
+    """`code` : ISBN-13 (978, 979), sinon EAN : le support se précisera quand un catalogue l'aura reconnu."""
     now = db.now()
-    return conn.execute("INSERT INTO notices(uid, isbn13, statut, cree_le, maj_le) VALUES (?, ?, ?, ?, ?)",
-                        (db.nouvel_uid(), isbn13, statut, now, now)).lastrowid
+    isbn13, ean = (code, None) if not code or code.startswith(("978", "979")) else (None, code)
+    if ean and support == "livre":
+        support = "inconnu"
+    return conn.execute("INSERT INTO notices(uid, isbn13, ean, support, statut, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (db.nouvel_uid(), isbn13, ean, support, statut, now, now)).lastrowid
 
 
-def creer_notice_attente(conn, isbn13: str) -> tuple[int, bool]:
-    """La notice de cet ISBN, créée en attente de description si besoin ; (numéro, nouvelle ?)."""
-    existante = db.id_notice(conn, isbn13)
+def creer_notice_attente(conn, code: str) -> tuple[int, bool]:
+    """La notice de cet ISBN ou EAN, créée en attente de description si besoin ; (numéro, nouvelle ?)."""
+    existante = db.id_notice(conn, code)
     if existante:
         return existante, False
-    return _nouvelle_notice(conn, isbn13, "en_attente"), True
+    return _nouvelle_notice(conn, code, "en_attente"), True
 
 
 def resume_notice(conn, ref: int | str, systeme: str | None = None) -> dict | None:
     systeme = systeme or systeme_courant(conn)
     row = conn.execute(
-        "SELECT n.id, n.isbn13, n.titre, n.auteurs, n.statut, n.couverture_url, n.annee, n.editeur, "
+        "SELECT n.id, n.uid, n.isbn13, n.ean, n.support, n.titre, n.auteurs, n.statut, n.couverture_url, n.annee, n.editeur, "
         "c.cote, c.libelle, c.code FROM notices n "
         "LEFT JOIN classifications c ON c.notice_id = n.id AND c.systeme = ? "
         "WHERE n.id = ?", (systeme, db.id_notice(conn, ref))).fetchone()
@@ -380,8 +479,10 @@ def modifier_notice(conn, ref: int | str, champs: dict) -> None:
             if cle == "auteurs":
                 values["auteur_tri"] = _tri_auteur(val[0]) if val else None
             val = db.jdump(val)
-        if cle in ("annee", "pages", "etoiles") and val is not None:
+        if cle in ("annee", "pages", "etoiles", "duree", "nb_disques") and val is not None:
             val = _entier(val, cle)
+        if cle == "support" and val not in SUPPORTS:
+            raise Erreur(tr("support inconnu : {valeur}", valeur=val))
         if cle == "etoiles" and val is not None and not 1 <= val <= 5:
             raise Erreur(tr("la note va de 1 à 5 étoiles"))
         if cle == "lecture" and val is not None and val not in LECTURES:
@@ -426,27 +527,32 @@ def _tri_auteur(nom_complet: str) -> str:
 
 
 def creer_notice_manuelle(conn, titre: str, auteurs: str = "", isbn: str | None = None,
-                          lieu_id=None, etagere_id=None, proprietaire: str | None = None, **champs) -> dict:
-    """Livre décrit à la main.
+                          lieu_id=None, etagere_id=None, proprietaire: str | None = None, rangee_id=None,
+                          support: str = "livre", par: str | None = None, **champs) -> dict:
+    """Livre, disque ou film décrit à la main.
 
-    Sans ISBN (livres anciens, autoédités) : statut « manuel », désigné par sa référence (L12).
-    Avec un ISBN : les champs saisis sont protégés et les catalogues complètent le reste
+    Sans code-barres (livres anciens, autoédités) : statut « manuel », désigné par sa référence (L12).
+    Avec un ISBN ou un EAN : les champs saisis sont protégés et les catalogues complètent le reste
     (`recherche` vaut alors True : il faut réveiller la recherche en arrière-plan).
     """
     if not (titre or "").strip():
         raise Erreur(tr("le titre est obligatoire"))
-    lieu_id, etagere_id = _verifier_emplacement(conn, lieu_id, etagere_id)
+    if support not in SUPPORTS:
+        raise Erreur(tr("support inconnu : {valeur}", valeur=support))
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id)
     if isbn and isbn.strip():
         code = _code(isbn)
         if code.startswith("L"):
             raise Erreur(tr("{code} : {n} caractères, un ISBN en compte 10 ou 13", code=repr(isbn), n=len(isbn)))
         notice_id, recherche = creer_notice_attente(conn, code)
     else:
-        notice_id, recherche = _nouvelle_notice(conn, None, "manuel"), False
+        notice_id, recherche = _nouvelle_notice(conn, None, "manuel", support), False
     # Seuls les champs remplis sont protégés : les catalogues complètent les autres
     champs = {k: v for k, v in {"auteurs": auteurs, **champs}.items() if v and str(v).strip()}
+    if support != "livre":
+        champs["support"] = support
     modifier_notice(conn, notice_id, {"titre": titre, **champs})
-    ex_id = _nouvel_exemplaire(conn, notice_id, lieu_id, etagere_id, proprietaire)
+    ex_id = _nouvel_exemplaire(conn, notice_id, lieu_id, etagere_id, proprietaire, rangee_id, par)
     db.reindex_notice(conn, notice_id)
     conn.commit()
     n = resume_notice(conn, notice_id)
@@ -454,7 +560,7 @@ def creer_notice_manuelle(conn, titre: str, auteurs: str = "", isbn: str | None 
 
 
 def ajouter_depuis_bnf(conn, notice_bnf: dict, lieu_id=None, etagere_id=None,
-                       proprietaire: str | None = None) -> dict:
+                       proprietaire: str | None = None, rangee_id=None, par: str | None = None) -> dict:
     """Ajoute un livre trouvé par la recherche BnF titre/auteur (voir sources.bnf.rechercher).
 
     Avec un ISBN, c'est un scan comme un autre. Sans ISBN (livres anciens), la notice BnF est
@@ -465,15 +571,15 @@ def ajouter_depuis_bnf(conn, notice_bnf: dict, lieu_id=None, etagere_id=None,
 
     if notice_bnf.get("isbn"):
         try:
-            res = ajouter(conn, notice_bnf["isbn"], lieu_id, etagere_id, proprietaire)
+            res = ajouter(conn, notice_bnf["isbn"], lieu_id, etagere_id, proprietaire, rangee_id=rangee_id, par=par)
             return {**res, "recherche": True}
         except Erreur:
             pass                                 # ISBN mal formé dans la notice : traité comme sans ISBN
-    lieu_id, etagere_id = _verifier_emplacement(conn, lieu_id, etagere_id)
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id)
     notice_id = _nouvelle_notice(conn, None, "trouve")
     conn.execute("INSERT INTO raw_responses(notice_id, source, statut, payload, recu_le) VALUES (?, ?, 'ok', ?, ?)",
                  (notice_id, bnf.NAME, bnf.reponse_unique(notice_bnf["xml"]), db.now()))
-    ex_id = _nouvel_exemplaire(conn, notice_id, lieu_id, etagere_id, proprietaire)
+    ex_id = _nouvel_exemplaire(conn, notice_id, lieu_id, etagere_id, proprietaire, rangee_id, par)
     rebuild(conn, notice_id)
     return {"notice_id": notice_id, "reference": f"L{notice_id}", "exemplaire_id": ex_id, "recherche": False}
 
@@ -507,31 +613,55 @@ def supprimer_notice(conn, ref: int | str, valider: bool = True) -> None:
     from . import covers
 
     notice_id = db.id_notice(conn, ref)
-    n = conn.execute("SELECT isbn13, uid FROM notices WHERE id = ?", (notice_id,)).fetchone()
+    n = conn.execute("SELECT isbn13, ean, uid FROM notices WHERE id = ?", (notice_id,)).fetchone()
     if not n:
         return
     conn.execute("DELETE FROM notices WHERE id = ?", (notice_id,))
     conn.execute("DELETE FROM notices_fts WHERE rowid = ?", (notice_id,))
     if valider:
         conn.commit()
-        if not n["isbn13"]:
-            covers.oublier(n["uid"])          # une couverture d'ISBN peut servir à une autre base
+        if not n["isbn13"] and not n["ean"]:
+            covers.oublier(n["uid"])          # une couverture d'ISBN ou d'EAN peut servir à une autre base
 
 
 # --- Modes de scan ----------------------------------------------------------------
 
-def _nouvel_exemplaire(conn, notice_id: int, lieu_id, etagere_id, proprietaire: str | None = None) -> int:
+def _nouvel_exemplaire(conn, notice_id: int, lieu_id, etagere_id, proprietaire: str | None = None, rangee_id=None,
+                       par: str | None = None) -> int:
     now = db.now()
     cur = conn.execute(
-        "INSERT INTO exemplaires(uid, notice_id, proprietaire_id, lieu_id, etagere_id, ajoute_le, maj_le) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO exemplaires(uid, notice_id, proprietaire_id, lieu_id, etagere_id, rangee_id, ajoute_le, maj_le, ajoute_par) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (db.nouvel_uid(), notice_id, personne_id(conn, proprietaire) or db.moi_id(conn),
-         lieu_id, etagere_id, now, db.horodatage()))
+         lieu_id, etagere_id, rangee_id, now, db.horodatage(), par or bibliothecaire_local(conn)))
     return cur.lastrowid
 
 
+def noter_scan(conn, res: dict, par: str, mode: str) -> None:
+    """Inscrit un passage sous la douchette, d'après le résultat d'un mode de scan.
+
+    Sans exemplaire désigné, c'est le mien scanné il y a le plus longtemps : deux scans en touchent deux.
+    `maj_le` ne bouge pas : un scan ne doit pas l'emporter sur une modification à la synchronisation.
+    """
+    if not res.get("notice_id") or res.get("statut") in ("rebond", "inconnu"):
+        return
+    ex_id = res.get("exemplaire_id")
+    if not ex_id:
+        row = conn.execute("SELECT id FROM exemplaires WHERE notice_id = ? AND proprietaire_id = ? "
+                           "ORDER BY dernier_scan_le IS NOT NULL, dernier_scan_le, id LIMIT 1",
+                           (res["notice_id"], db.moi_id(conn))).fetchone()
+        if not row:                              # seul un ami l'a : ce n'est pas mon livre qui est passé
+            return
+        ex_id = row["id"]
+    le = db.now()
+    conn.execute("UPDATE exemplaires SET dernier_scan_le = ?, dernier_scan_par = ? WHERE id = ?", (le, par, ex_id))
+    conn.execute("INSERT INTO scans(uid, exemplaire_id, par, le, mode) VALUES (?, ?, ?, ?, ?)",
+                 (db.nouvel_uid(), ex_id, par, le, mode))
+    conn.commit()
+
+
 def ajouter(conn, raw: str, lieu_id=None, etagere_id=None, proprietaire: str | None = None,
-            filtrer_rebond: bool = True) -> dict:
+            filtrer_rebond: bool = True, rangee_id=None, par: str | None = None) -> dict:
     """Mode ajout : un scan = un exemplaire de plus à l'emplacement courant.
 
     `filtrer_rebond` ignore une double lecture ; un import de fichier le coupe, chaque ligne y étant voulue.
@@ -540,31 +670,31 @@ def ajouter(conn, raw: str, lieu_id=None, etagere_id=None, proprietaire: str | N
     notice_id = db.id_notice(conn, code)
     if notice_id is None and code.startswith("L"):
         raise Erreur(tr("livre inconnu : {isbn}", isbn=code))
-    lieu_id, etagere_id = _verifier_emplacement(conn, lieu_id, etagere_id)
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id)
     tous = exemplaires_de(conn, notice_id) if notice_id else []
     existants = [e for e in tous if e["a_moi"]]
     chez_amis = sorted({e["proprietaire"] for e in tous if not e["a_moi"]})
     if existants and filtrer_rebond:
         dernier = max(existants, key=lambda e: e["ajoute_le"])
         recent = datetime.fromisoformat(dernier["ajoute_le"]) > datetime.now() - timedelta(seconds=REBOND_SECONDES)
-        if recent and dernier["lieu_id"] == lieu_id and dernier["etagere_id"] == etagere_id:
+        if recent and (dernier["lieu_id"], dernier["etagere_id"], dernier["rangee_id"]) == (lieu_id, etagere_id, rangee_id):
             return {"ok": True, "statut": "rebond", "code": code, "notice_id": notice_id,
                     "message": tr("lecture en double ignorée"), "notice": resume_notice(conn, notice_id)}
     nouveau = False
     if notice_id is None:
         notice_id, nouveau = creer_notice_attente(conn, code)
-    ex_id = _nouvel_exemplaire(conn, notice_id, lieu_id, etagere_id, proprietaire)
+    ex_id = _nouvel_exemplaire(conn, notice_id, lieu_id, etagere_id, proprietaire, rangee_id, par)
     conn.commit()
     res = {
         "ok": True, "code": code, "notice_id": notice_id, "exemplaire_id": ex_id, "nouveau": nouveau,
-        "emplacement": nom_emplacement(conn, lieu_id, etagere_id),
+        "emplacement": nom_emplacement(conn, lieu_id, etagere_id, rangee_id),
         "notice": resume_notice(conn, notice_id),
         "autres": [e["emplacement"] for e in existants],
     }
     if existants:
         res["statut"] = "doublon"
-        res["message"] = tr("déjà {n} exemplaire(s) : {ou} — ajouté quand même",
-                            n=len(existants), ou=", ".join(res["autres"]))
+        res["message"] = pluriel(len(existants), "déjà {n} exemplaire : {ou} — ajouté quand même",
+                                 "déjà {n} exemplaires : {ou} — ajouté quand même", ou=", ".join(res["autres"]))
     else:
         res["statut"] = "ajoute"
         res["message"] = tr("ajouté")
@@ -598,20 +728,21 @@ def annuler_exemplaire(conn, exemplaire_id: int) -> None:
     conn.commit()
 
 
-def deplacer_exemplaire(conn, exemplaire_id: int, lieu_id, etagere_id) -> None:
-    lieu_id, etagere_id = _verifier_emplacement(conn, lieu_id, etagere_id)
+def deplacer_exemplaire(conn, exemplaire_id: int, lieu_id, etagere_id, rangee_id=None) -> None:
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id)
     ex = conn.execute("SELECT * FROM exemplaires_v WHERE id = ?", (exemplaire_id,)).fetchone()
     if not ex:
         raise Erreur(tr("exemplaire introuvable"))
     _verifier_a_moi(conn, ex)
-    if (ex["lieu_id"], ex["etagere_id"]) == (lieu_id, etagere_id):
+    if (ex["lieu_id"], ex["etagere_id"], ex["rangee_id"]) == (lieu_id, etagere_id, rangee_id):
         return
-    conn.execute("UPDATE exemplaires SET lieu_id = ?, etagere_id = ?, maj_le = ? WHERE id = ?",
-                 (lieu_id, etagere_id, db.horodatage(), exemplaire_id))
+    conn.execute("UPDATE exemplaires SET lieu_id = ?, etagere_id = ?, rangee_id = ?, maj_le = ? WHERE id = ?",
+                 (lieu_id, etagere_id, rangee_id, db.horodatage(), exemplaire_id))
     conn.execute(
-        "INSERT INTO mouvements(uid, exemplaire_id, de_lieu, de_etagere, vers_lieu, vers_etagere, date) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (db.nouvel_uid(), exemplaire_id, ex["lieu_id"], ex["etagere_id"], lieu_id, etagere_id, db.now()))
+        "INSERT INTO mouvements(uid, exemplaire_id, de_lieu, de_etagere, de_rangee, vers_lieu, vers_etagere, vers_rangee, date) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (db.nouvel_uid(), exemplaire_id, ex["lieu_id"], ex["etagere_id"], ex["rangee_id"],
+         lieu_id, etagere_id, rangee_id, db.now()))
     conn.commit()
 
 
@@ -648,27 +779,28 @@ def modifier_exemplaire(conn, exemplaire_id: int, champs: dict) -> None:
     conn.commit()
 
 
-def deplacer(conn, raw: str, lieu_id, etagere_id) -> dict:
+def deplacer(conn, raw: str, lieu_id, etagere_id, rangee_id=None) -> dict:
     """Mode déplacement : le livre scanné rejoint l'emplacement courant."""
     code = _code(raw)
-    lieu_id, etagere_id = _verifier_emplacement(conn, lieu_id, etagere_id)
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id)
     notice_id = db.id_notice(conn, code)
     existants = exemplaires_de(conn, notice_id, miens=True) if notice_id else []
-    cible = nom_emplacement(conn, lieu_id, etagere_id)
+    cible = nom_emplacement(conn, lieu_id, etagere_id, rangee_id)
     if not existants:
         return {"ok": False, "statut": "inconnu", "code": code,
                 "message": tr("ce livre n'est pas dans la collection (passez en mode ajout)")}
-    if any((e["lieu_id"], e["etagere_id"]) == (lieu_id, etagere_id) for e in existants):
-        return {"ok": True, "statut": "deja_la", "code": code, "notice_id": notice_id,
+    deja_la = next((e for e in existants if (e["lieu_id"], e["etagere_id"], e["rangee_id"]) == (lieu_id, etagere_id, rangee_id)), None)
+    if deja_la:
+        return {"ok": True, "statut": "deja_la", "code": code, "notice_id": notice_id, "exemplaire_id": deja_la["id"],
                 "message": tr("déjà rangé : {ou}", ou=cible), "notice": resume_notice(conn, notice_id)}
     ex = existants[0]
-    deplacer_exemplaire(conn, ex["id"], lieu_id, etagere_id)
+    deplacer_exemplaire(conn, ex["id"], lieu_id, etagere_id, rangee_id)
     return {"ok": True, "statut": "deplace", "code": code, "notice_id": notice_id, "exemplaire_id": ex["id"],
             "message": f"{ex['emplacement']} → {cible}", "notice": resume_notice(conn, notice_id)}
 
 
-def localiser(conn, raw: str) -> dict:
-    """Mode « où est-il ? »."""
+def localiser(conn, raw: str, avec_emprunteur: bool = True) -> dict:
+    """Mode « où est-il ? ». `avec_emprunteur` : les noms des emprunteurs ne sont pas pour tout le monde."""
     code = _code(raw)
     notice_id = db.id_notice(conn, code)
     existants = exemplaires_de(conn, notice_id) if notice_id else []
@@ -679,7 +811,7 @@ def localiser(conn, raw: str) -> dict:
     for e in existants:
         p = e["emplacement"]
         if e["pret"]:
-            p += tr(" (prêté à {qui})", qui=e["pret"]["emprunteur"])
+            p += tr(" (prêté à {qui})", qui=e["pret"]["emprunteur"]) if avec_emprunteur else tr(" (prêté)")
         places.append(p)
     return {"ok": True, "statut": "trouve", "code": code, "notice_id": notice_id, "message": " ; ".join(places),
             "emplacements": places, "notice": resume_notice(conn, notice_id)}
@@ -687,12 +819,12 @@ def localiser(conn, raw: str) -> dict:
 
 # --- Inventaire (récolement) ------------------------------------------------------
 
-def demarrer_inventaire(conn, lieu_id: int, etagere_id: int | None = None) -> int:
-    lieu_id, etagere_id = _verifier_emplacement(conn, lieu_id, etagere_id)
+def demarrer_inventaire(conn, lieu_id: int, etagere_id: int | None = None, rangee_id: int | None = None) -> int:
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id)
     if not lieu_id:
         raise Erreur(tr("choisissez un lieu à inventorier"))
-    cur = conn.execute("INSERT INTO inventaires(lieu_id, etagere_id, debut) VALUES (?, ?, ?)",
-                       (lieu_id, etagere_id, db.now()))
+    cur = conn.execute("INSERT INTO inventaires(lieu_id, etagere_id, rangee_id, debut) VALUES (?, ?, ?, ?)",
+                       (lieu_id, etagere_id, rangee_id, db.now()))
     conn.commit()
     return cur.lastrowid
 
@@ -702,14 +834,15 @@ def inventaire(conn, inv_id: int) -> dict:
     if not row:
         raise Erreur(tr("inventaire introuvable"))
     d = dict(row)
-    d["emplacement"] = nom_emplacement(conn, row["lieu_id"], row["etagere_id"])
+    d["emplacement"] = nom_emplacement(conn, row["lieu_id"], row["etagere_id"], row["rangee_id"])
     return d
 
 
 def _dans_zone(inv: dict, ex: dict) -> bool:
     if ex["lieu_id"] != inv["lieu_id"]:
         return False
-    return inv["etagere_id"] is None or ex["etagere_id"] == inv["etagere_id"]
+    return ((inv["etagere_id"] is None or ex["etagere_id"] == inv["etagere_id"])
+            and (inv["rangee_id"] is None or ex["rangee_id"] == inv["rangee_id"]))
 
 
 def scanner_inventaire(conn, inv_id: int, raw: str, filtrer_rebond: bool = True) -> dict:
@@ -733,8 +866,10 @@ def scanner_inventaire(conn, inv_id: int, raw: str, filtrer_rebond: bool = True)
     existants = exemplaires_de(conn, notice_id, miens=True) if notice_id else []
     if not existants:
         return {**res, "ok": False, "statut": "inconnu", "message": tr("pas dans la collection")}
-    attendus = sum(_dans_zone(inv, e) for e in existants)
+    dans_la_zone = [e for e in existants if _dans_zone(inv, e)]
+    attendus = len(dans_la_zone)
     if attendus:
+        res["exemplaire_id"] = min(dans_la_zone, key=lambda e: e["dernier_scan_le"] or "")["id"]
         nb = conn.execute("SELECT nb FROM inventaire_scans WHERE inventaire_id = ? AND code = ?",
                           (inv_id, code)).fetchone()["nb"]
         message = tr("présent") if attendus == 1 else tr("présent ({n} sur {total})", n=min(nb, attendus), total=attendus)
@@ -748,12 +883,15 @@ def rapport_inventaire(conn, inv_id: int) -> dict:
     inv = inventaire(conn, inv_id)
     scans = {r["code"]: r["nb"] for r in conn.execute(
         "SELECT code, nb FROM inventaire_scans WHERE inventaire_id = ?", (inv_id,))}
-    sql = ("SELECT e.id, n.id AS notice_id, n.isbn13 FROM exemplaires e JOIN notices n ON n.id = e.notice_id "
+    sql = ("SELECT e.id, n.id AS notice_id, n.isbn13, n.ean FROM exemplaires e JOIN notices n ON n.id = e.notice_id "
            "WHERE e.lieu_id = ? AND e.proprietaire_id = ?")
     params = [inv["lieu_id"], db.moi_id(conn)]
     if inv["etagere_id"]:
         sql += " AND e.etagere_id = ?"
         params.append(inv["etagere_id"])
+    if inv["rangee_id"]:
+        sql += " AND e.rangee_id = ?"
+        params.append(inv["rangee_id"])
     attendus = {}
     for e in conn.execute(sql, params):
         attendus.setdefault(db.reference(dict(e, id=e["notice_id"])), []).append(e["id"])
@@ -777,7 +915,7 @@ def rapport_inventaire(conn, inv_id: int) -> dict:
 
 
 def cloturer_inventaire(conn, inv_id: int, ranger_ailleurs: bool = False,
-                        ajouter_inconnus: bool = False) -> dict:
+                        ajouter_inconnus: bool = False, par: str | None = None) -> dict:
     rapport = rapport_inventaire(conn, inv_id)
     inv = rapport["inventaire"]
     deplaces = ajoutes = 0
@@ -785,11 +923,12 @@ def cloturer_inventaire(conn, inv_id: int, ranger_ailleurs: bool = False,
         for a in rapport["ailleurs"]:
             ex = exemplaires_de(conn, a["id"], miens=True)
             if ex:
-                deplacer_exemplaire(conn, ex[0]["id"], inv["lieu_id"], inv["etagere_id"])
+                deplacer_exemplaire(conn, ex[0]["id"], inv["lieu_id"], inv["etagere_id"], inv["rangee_id"])
                 deplaces += 1
     if ajouter_inconnus:
         for code in rapport["inconnus"]:
-            ajouter(conn, code, inv["lieu_id"], inv["etagere_id"])
+            res = ajouter(conn, code, inv["lieu_id"], inv["etagere_id"], rangee_id=inv["rangee_id"], par=par)
+            noter_scan(conn, res, par or bibliothecaire_local(conn), "inventaire")
             ajoutes += 1
     conn.execute("UPDATE inventaires SET fin = ? WHERE id = ?", (db.now(), inv_id))
     conn.commit()
@@ -800,7 +939,7 @@ def inventaires(conn, limite: int = 20) -> list[dict]:
     out = []
     for r in conn.execute("SELECT * FROM inventaires ORDER BY id DESC LIMIT ?", (limite,)):
         d = dict(r)
-        d["emplacement"] = nom_emplacement(conn, r["lieu_id"], r["etagere_id"])
+        d["emplacement"] = nom_emplacement(conn, r["lieu_id"], r["etagere_id"], r["rangee_id"])
         d["nb_scans"] = conn.execute("SELECT count(*) FROM inventaire_scans WHERE inventaire_id = ?",
                                      (r["id"],)).fetchone()[0]
         out.append(d)
@@ -809,9 +948,14 @@ def inventaires(conn, limite: int = 20) -> list[dict]:
 
 # --- Recherche et listes ----------------------------------------------------------
 
-def _fts_query(q: str) -> str:
+COLONNES_SANS_NOTES = "titre auteurs editeur collection sujets resume"
+
+
+def _fts_query(q: str, sans_notes: bool = False) -> str:
+    """`sans_notes` : un lecteur ne doit pas pouvoir sonder les notes personnelles par la recherche."""
     mots = re.findall(r"\w+", q, flags=re.UNICODE)
-    return " ".join(f'"{m}"*' for m in mots)
+    colonnes = f"{{{COLONNES_SANS_NOTES}}} : " if sans_notes else ""
+    return " ".join(f'{colonnes}"{m}"*' for m in mots)
 
 
 TRIS = {
@@ -838,7 +982,8 @@ def _date(valeur: str | None) -> str | None:
 def _filtres(q: str = "", lieu_id=None, etagere_id=None, statut: str | None = None,
              classe: str | None = None, a_classer: bool = False,
              ajout_du: str | None = None, ajout_au: str | None = None,
-             proprietaire: int | None = None, lecture: str | None = None) -> tuple[list[str], list]:
+             proprietaire: int | None = None, lecture: str | None = None,
+             rangee_id=None, support: str | None = None, sans_notes: bool = False) -> tuple[list[str], list]:
     """Conditions SQL communes à la liste du catalogue et aux opérations groupées.
 
     `proprietaire` est déjà résolu par `_proprio` (None = tout le monde).
@@ -860,11 +1005,11 @@ def _filtres(q: str = "", lieu_id=None, etagere_id=None, statut: str | None = No
             params.append(int(ref.group(1)))
         else:
             try:
-                isbn13 = normalize(q)
-                where.append("n.isbn13 = ?")
-                params.append(isbn13)
+                _, code = analyser(q)
+                where.append("(n.isbn13 = ? OR n.ean = ?)")
+                params += [code, code]
             except IsbnError:
-                fts = _fts_query(q)
+                fts = _fts_query(q, sans_notes)
                 if fts:
                     where.append("n.id IN (SELECT rowid FROM notices_fts WHERE notices_fts MATCH ?)")
                     params.append(fts)
@@ -876,6 +1021,16 @@ def _filtres(q: str = "", lieu_id=None, etagere_id=None, statut: str | None = No
     if etagere_id:
         where.append("e.etagere_id = ?")
         params.append(int(etagere_id))
+    if rangee_id:
+        where.append("e.rangee_id = ?")
+        params.append(int(rangee_id))
+    if support == "musique":
+        where.append("n.support IN ('cd', 'vinyle', 'cassette')")
+    elif support == "films":
+        where.append("n.support IN ('dvd', 'bluray')")
+    elif support:
+        where.append("n.support = ?")
+        params.append(support)
     if statut:
         where.append("n.statut = ?")
         params.append(statut)
@@ -899,6 +1054,7 @@ def _base(where: list[str]) -> str:
         "JOIN personnes p ON p.id = e.proprietaire_id "
         "LEFT JOIN classifications c ON c.notice_id = n.id AND c.systeme = ? "
         "LEFT JOIN lieux l ON l.id = e.lieu_id LEFT JOIN etageres et ON et.id = e.etagere_id "
+        "LEFT JOIN rangees ra ON ra.id = e.rangee_id "
         "WHERE " + " AND ".join(where)
     )
 
@@ -907,7 +1063,8 @@ def rechercher(conn, q: str = "", lieu_id=None, etagere_id=None, statut: str | N
                systeme: str | None = None, classe: str | None = None, a_classer: bool = False,
                ajout_du: str | None = None, ajout_au: str | None = None, proprietaire: str | None = None,
                lecture: str | None = None, tri: str = "cote", limite: int = 50,
-               decalage: int = 0) -> tuple[list[dict], int]:
+               decalage: int = 0, rangee_id=None, support: str | None = None,
+               sans_notes: bool = False) -> tuple[list[dict], int]:
     """Exemplaires correspondant aux filtres, avec la cote du système choisi.
 
     `proprietaire` : vide = mes livres, « tous », ou le nom d'un ami.
@@ -915,14 +1072,14 @@ def rechercher(conn, q: str = "", lieu_id=None, etagere_id=None, statut: str | N
     systeme = systeme or systeme_courant(conn)
     moi = db.moi_id(conn)
     where, params = _filtres(q, lieu_id, etagere_id, statut, classe, a_classer, ajout_du, ajout_au,
-                             _proprio(conn, proprietaire), lecture)
+                             _proprio(conn, proprietaire), lecture, rangee_id, support, sans_notes)
     base = _base(where)
     total = conn.execute(f"SELECT count(*) {base}", [systeme, *params]).fetchone()[0]
     order = TRIS.get(tri, TRIS["cote"])
     rows = conn.execute(
-        f"SELECT e.id AS exemplaire_id, e.lieu_id, e.etagere_id, e.ajoute_le, e.proprietaire_id, "
+        f"SELECT e.id AS exemplaire_id, e.lieu_id, e.etagere_id, e.rangee_id, e.ajoute_le, e.proprietaire_id, "
         f"p.nom AS proprietaire, e.lieu_texte, n.*, "
-        f"c.code, c.cote, c.libelle, c.origine, l.nom AS lieu, et.nom AS etagere, "
+        f"c.code, c.cote, c.libelle, c.origine, l.nom AS lieu, et.nom AS etagere, ra.nom AS rangee, "
         f"(SELECT emprunteur FROM prets_v pr WHERE pr.exemplaire_id = e.id AND pr.date_retour IS NULL) AS emprunteur "
         f"{base} ORDER BY {order} LIMIT ? OFFSET ?",
         [systeme, *params, limite, decalage]).fetchall()
@@ -931,7 +1088,7 @@ def rechercher(conn, q: str = "", lieu_id=None, etagere_id=None, statut: str | N
         d = db.notice_dict(r)
         d["a_moi"] = r["proprietaire_id"] == moi
         if d["a_moi"]:
-            d["emplacement"] = (r["lieu"] or tr("Non localisé")) + (f" › {r['etagere']}" if r["etagere"] else "")
+            d["emplacement"] = " › ".join(filter(None, [r["lieu"] or tr("Non localisé"), r["etagere"], r["rangee"]]))
         else:
             d["emplacement"] = r["lieu_texte"] or ""
         out.append(d)
@@ -945,20 +1102,20 @@ def ids_exemplaires(conn, systeme: str | None = None, proprietaire: str | None =
     return [r[0] for r in conn.execute(f"SELECT e.id {_base(where)}", [systeme, *params])]
 
 
-def deplacer_lot(conn, exemplaire_ids: list[int], lieu_id, etagere_id) -> int:
+def deplacer_lot(conn, exemplaire_ids: list[int], lieu_id, etagere_id, rangee_id=None) -> int:
     """Range plusieurs exemplaires au même endroit (historique conservé pour chacun)."""
-    lieu_id, etagere_id = _verifier_emplacement(conn, lieu_id, etagere_id)
+    lieu_id, etagere_id, rangee_id = _verifier_emplacement(conn, lieu_id, etagere_id, rangee_id)
     moi = db.moi_id(conn)
     exemplaires = [conn.execute("SELECT * FROM exemplaires WHERE id = ?", (i,)).fetchone() for i in exemplaire_ids]
     exemplaires = [ex for ex in exemplaires if ex]
     autres = [ex for ex in exemplaires if ex["proprietaire_id"] != moi]
     if autres:
-        raise Erreur(tr("{n} livre(s) sélectionné(s) appartiennent à d'autres que vous : on ne range que ses propres livres",
-                        n=len(autres)))
+        raise Erreur(pluriel(len(autres), "{n} livre sélectionné appartient à quelqu'un d'autre : on ne range que ses propres livres",
+                             "{n} livres sélectionnés appartiennent à d'autres que vous : on ne range que ses propres livres"))
     n = 0
     for ex in exemplaires:
-        if (ex["lieu_id"], ex["etagere_id"]) != (lieu_id, etagere_id):
-            deplacer_exemplaire(conn, ex["id"], lieu_id, etagere_id)
+        if (ex["lieu_id"], ex["etagere_id"], ex["rangee_id"]) != (lieu_id, etagere_id, rangee_id):
+            deplacer_exemplaire(conn, ex["id"], lieu_id, etagere_id, rangee_id)
             n += 1
     return n
 
@@ -980,7 +1137,7 @@ def donner(conn, exemplaire_id: int, vers: str) -> bool:
         return False
     conn.execute("UPDATE prets SET date_retour = ?, maj_le = ? WHERE exemplaire_id = ? AND date_retour IS NULL",
                  (db.now(), db.horodatage(), exemplaire_id))
-    conn.execute("UPDATE exemplaires SET proprietaire_id = ?, lieu_id = NULL, etagere_id = NULL, lieu_texte = NULL, "
+    conn.execute("UPDATE exemplaires SET proprietaire_id = ?, lieu_id = NULL, etagere_id = NULL, rangee_id = NULL, lieu_texte = NULL, "
                  "maj_le = ? WHERE id = ?", (vers_id, db.horodatage(), exemplaire_id))
     conn.commit()
     return True
@@ -1040,16 +1197,16 @@ def doublons(conn) -> dict:
         if len(exemplaires) < 2:
             continue
         titres.append({**livre, "exemplaires": [
-            {"id": ex["id"], "emplacement": nom_emplacement(conn, ex["lieu_id"], ex["etagere_id"])}
+            {"id": ex["id"], "emplacement": nom_emplacement(conn, ex["lieu_id"], ex["etagere_id"], ex["rangee_id"])}
             for ex in exemplaires]})
         par_emplacement: dict[tuple, list] = {}
         for ex in exemplaires:
             if ex["lieu_id"]:
-                par_emplacement.setdefault((ex["lieu_id"], ex["etagere_id"]), []).append(ex)
-        for (lieu_id, etagere_id), memes in par_emplacement.items():
+                par_emplacement.setdefault((ex["lieu_id"], ex["etagere_id"], ex["rangee_id"]), []).append(ex)
+        for (lieu_id, etagere_id, rangee_id), memes in par_emplacement.items():
             tri = _exemplaires_de_trop(conn, memes)
             if tri["retirer"]:
-                de_trop.append({**livre, **tri, "emplacement": nom_emplacement(conn, lieu_id, etagere_id)})
+                de_trop.append({**livre, **tri, "emplacement": nom_emplacement(conn, lieu_id, etagere_id, rangee_id)})
     return {"titres": titres, "de_trop": de_trop,
             "editions": [livres for livres in par_titre.values() if len(livres) > 1]}
 
@@ -1100,9 +1257,9 @@ def relancer(conn) -> int:
     Seuls les échecs sont redemandés : les réponses valides restent, et la fiche ne se vide pas.
     """
     ids = [r[0] for r in conn.execute(
-        "SELECT id FROM notices WHERE statut IN ('erreur', 'introuvable') AND isbn13 IS NOT NULL "
+        "SELECT id FROM notices WHERE statut IN ('erreur', 'introuvable') AND (isbn13 IS NOT NULL OR ean IS NOT NULL) "
         "UNION SELECT r.notice_id FROM raw_responses r JOIN notices n ON n.id = r.notice_id "
-        "WHERE r.statut = 'erreur' AND n.isbn13 IS NOT NULL")]
+        "WHERE r.statut = 'erreur' AND (n.isbn13 IS NOT NULL OR n.ean IS NOT NULL)")]
     conn.executemany("DELETE FROM raw_responses WHERE notice_id = ? AND statut != 'ok'", [(i,) for i in ids])
     conn.executemany("UPDATE notices SET statut = 'en_attente' WHERE id = ?", [(i,) for i in ids])
     conn.commit()
@@ -1151,13 +1308,23 @@ def _compter(conn, sql: str, params=(), nom=None) -> list[dict]:
     return out
 
 
+def _douze_mois(par_mois: dict) -> list[dict]:
+    """Les 12 derniers mois dans l'ordre, même vides ; `par_mois` : {"2026-11": nb}."""
+    an, mois = datetime.now().year, datetime.now().month
+    cles = []
+    for _ in range(12):
+        cles.append(f"{an}-{mois:02d}")
+        an, mois = (an - 1, 12) if mois == 1 else (an, mois - 1)
+    return [dict(mois=c, nom=c, nb=par_mois.get(c, 0)) for c in reversed(cles)]
+
+
 def _stats_prets(conn) -> dict:
     """Mes prêts : ceux en cours (les plus anciens d'abord), l'historique et le rythme mensuel."""
     maintenant = datetime.now()
     moi = (db.moi_id(conn),)
     en_cours = []
     for r in conn.execute(
-            "SELECT p.emprunteur, p.date_pret, n.id, n.isbn13, n.titre FROM prets_v p "
+            "SELECT p.emprunteur, p.date_pret, n.id, n.isbn13, n.ean, n.titre FROM prets_v p "
             "JOIN exemplaires e ON e.id = p.exemplaire_id JOIN notices n ON n.id = e.notice_id "
             "WHERE p.date_retour IS NULL AND p.preteur_id = ? ORDER BY p.date_pret", moi):
         en_cours.append(dict(nom=r["titre"] or db.reference(r), qui=r["emprunteur"], depuis=r["date_pret"][:10],
@@ -1167,22 +1334,17 @@ def _stats_prets(conn) -> dict:
                            "WHERE date_retour IS NOT NULL AND preteur_id = ?", moi).fetchone()[0]
     par_mois = {r[0]: r[1] for r in conn.execute(
         "SELECT substr(date_pret, 1, 7), count(*) FROM prets WHERE preteur_id = ? GROUP BY 1", moi)}
-    an, mois = maintenant.year, maintenant.month
-    cles = []
-    for _ in range(12):                                 # les 12 derniers mois, même sans prêt
-        cles.append(f"{an}-{mois:02d}")
-        an, mois = (an - 1, 12) if mois == 1 else (an, mois - 1)
     return {
         "prets_en_cours": en_cours,
         "prets_total": conn.execute("SELECT count(*) FROM prets WHERE preteur_id = ?", moi).fetchone()[0],
         "prets_duree_moyenne": None if moyenne is None else round(moyenne),
         "prets_par_emprunteur": _compter(conn, "SELECT emprunteur, count(*) AS nb FROM prets_v WHERE preteur_id = ? "
                                          "AND date_retour IS NULL GROUP BY emprunteur_id ORDER BY nb DESC, emprunteur", moi),
-        "prets_par_mois": [dict(mois=c, nom=c, nb=par_mois.get(c, 0)) for c in reversed(cles)],
+        "prets_par_mois": _douze_mois(par_mois),
         "emprunteurs": _compter(conn, "SELECT emprunteur, count(*) AS nb FROM prets_v WHERE preteur_id = ? "
                                 "GROUP BY emprunteur_id ORDER BY nb DESC, emprunteur", moi),
         "plus_pretes": [dict(nom=r["titre"] or db.reference(r), nb=r["nb"], url=f"/livre/{r['id']}") for r in conn.execute(
-            "SELECT n.id, n.isbn13, n.titre, count(*) AS nb FROM prets p JOIN exemplaires e ON e.id = p.exemplaire_id "
+            "SELECT n.id, n.isbn13, n.ean, n.titre, count(*) AS nb FROM prets p JOIN exemplaires e ON e.id = p.exemplaire_id "
             "JOIN notices n ON n.id = e.notice_id WHERE p.preteur_id = ? GROUP BY n.id ORDER BY nb DESC, n.titre", moi)],
     }
 
@@ -1257,11 +1419,14 @@ def _par_collection(conn, moi: tuple) -> list[dict]:
 def _par_etagere(conn, moi: tuple) -> list[dict]:
     out = []
     for r in conn.execute(
-            "SELECT e.lieu_id, e.etagere_id, l.nom AS lieu, et.nom AS etagere, count(*) AS nb FROM exemplaires e "
+            "SELECT e.lieu_id, e.etagere_id, e.rangee_id, l.nom AS lieu, et.nom AS etagere, ra.nom AS rangee, "
+            "count(*) AS nb FROM exemplaires e "
             "JOIN lieux l ON l.id = e.lieu_id LEFT JOIN etageres et ON et.id = e.etagere_id "
-            "WHERE e.proprietaire_id = ? GROUP BY e.lieu_id, e.etagere_id ORDER BY nb DESC, l.nom", moi):
-        url = f"/catalogue?lieu={r['lieu_id']}" + (f"&etagere={r['etagere_id']}" if r["etagere_id"] else "")
-        nom = f"{r['lieu']} › {r['etagere']}" if r["etagere"] else r["lieu"]
+            "LEFT JOIN rangees ra ON ra.id = e.rangee_id "
+            "WHERE e.proprietaire_id = ? GROUP BY e.lieu_id, e.etagere_id, e.rangee_id ORDER BY nb DESC, l.nom", moi):
+        url = (f"/catalogue?lieu={r['lieu_id']}" + (f"&etagere={r['etagere_id']}" if r["etagere_id"] else "")
+               + (f"&rangee={r['rangee_id']}" if r["rangee_id"] else ""))
+        nom = " › ".join(filter(None, [r["lieu"], r["etagere"], r["rangee"]]))
         out.append(dict(nom=nom, nb=r["nb"], url=url))
     return out
 
@@ -1270,7 +1435,7 @@ def _completude(conn, moi: tuple, systeme: str) -> list[dict]:
     """Part des fiches renseignées : ce qu'il reste à compléter."""
     from . import covers
 
-    notices = conn.execute(f"SELECT n.isbn13, n.uid FROM notices n WHERE {A_MOI}", moi).fetchall()
+    notices = conn.execute(f"SELECT n.isbn13, n.ean, n.uid FROM notices n WHERE {A_MOI}", moi).fetchall()
     total = len(notices)
     if not total:
         return []
@@ -1295,7 +1460,7 @@ def _completude(conn, moi: tuple, systeme: str) -> list[dict]:
 def _records(conn, moi: tuple) -> list[dict]:
     """Les livres extrêmes de la collection."""
     def premier(condition, ordre, valeur, libelle):
-        r = conn.execute(f"SELECT n.id, n.isbn13, n.titre, n.annee, n.pages FROM notices n WHERE {A_MOI} AND {condition} "
+        r = conn.execute(f"SELECT n.id, n.isbn13, n.ean, n.titre, n.annee, n.pages FROM notices n WHERE {A_MOI} AND {condition} "
                          f"ORDER BY {ordre}, n.titre LIMIT 1", moi).fetchone()
         return r and dict(libelle=libelle, titre=r["titre"] or db.reference(r), url=f"/livre/{r['id']}", valeur=valeur(r))
     pages = lambda r: tr("{n} pages", n=r["pages"])
@@ -1350,6 +1515,30 @@ def _stats_valeur(conn, moi: tuple) -> dict:
                                  nom=lambda v: tr(NOMS_ETATS.get(v, v)))}
 
 
+def nom_bibliothecaire(par: str) -> str:
+    return tr("Téléphone partagé") if par == db.PAR_TELEPHONE else par
+
+
+def _stats_bibliothecaires(conn, moi: tuple) -> dict:
+    """Qui a introduit mes livres, et qui les scanne. Un livre retiré sort des comptes."""
+    introduits = {r[0]: r[1] for r in conn.execute(
+        "SELECT ajoute_par, count(*) FROM exemplaires WHERE proprietaire_id = ? AND ajoute_par IS NOT NULL GROUP BY 1", moi)}
+    depuis_scans = "FROM scans s JOIN exemplaires e ON e.id = s.exemplaire_id WHERE e.proprietaire_id = ? AND s.par IS NOT NULL "
+    scans = {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT s.par, count(*), max(s.le) " + depuis_scans + "GROUP BY 1", moi)}
+    personnes = [dict(nom=nom_bibliothecaire(p), introduits=introduits.get(p, 0), scans=scans.get(p, (0, None))[0],
+                      dernier_scan=(scans.get(p, (0, None))[1] or "")[:10]) for p in {*introduits, *scans}]
+    personnes.sort(key=lambda p: (-p["scans"], -p["introduits"], p["nom"]))
+    return {
+        "bibliothecaires": personnes,
+        "par_introducteur": sorted((dict(nom=p["nom"], nb=p["introduits"]) for p in personnes if p["introduits"]),
+                                   key=lambda r: -r["nb"]),
+        "par_scanneur": [dict(nom=p["nom"], nb=p["scans"]) for p in personnes if p["scans"]],
+        "scans_par_mois": _douze_mois({r[0]: r[1] for r in conn.execute(
+            "SELECT substr(s.le, 1, 7), count(*) " + depuis_scans + "GROUP BY 1", moi)}),
+    }
+
+
 def stats(conn) -> dict:
     """Chiffres de ma collection (les livres des amis ne comptent pas)."""
     systeme = systeme_courant(conn)
@@ -1369,6 +1558,8 @@ def stats(conn) -> dict:
         "statuts": {r[0]: r[1] for r in conn.execute(
             f"SELECT statut, count(*) FROM notices n WHERE {A_MOI} GROUP BY statut", moi)},
         # Listes complètes : la page montre les premiers, et regroupe le reste en « Autres »
+        "par_support": _compter(conn, "SELECT n.support, count(*) AS nb " + base + "GROUP BY n.support ORDER BY nb DESC", moi,
+                                nom=lambda v: tr(NOMS_SUPPORTS.get(v, v))),
         "par_lieu": _compter(conn, "SELECT l.nom, count(*) AS nb FROM exemplaires e "
                              "LEFT JOIN lieux l ON l.id = e.lieu_id WHERE e.proprietaire_id = ? "
                              "GROUP BY l.id ORDER BY nb DESC", moi,
@@ -1395,7 +1586,7 @@ def stats(conn) -> dict:
         "completude": _completude(conn, moi, systeme),
         "plusieurs_exemplaires": [dict(nom=r["titre"] or db.reference(r), nb=r["nb"], url=f"/livre/{r['id']}")
                                   for r in conn.execute(
-            "SELECT n.id, n.isbn13, n.titre, count(*) AS nb " + base +
+            "SELECT n.id, n.isbn13, n.ean, n.titre, count(*) AS nb " + base +
             "GROUP BY n.id HAVING nb > 1 ORDER BY nb DESC, n.titre", moi)],
         "records": _records(conn, moi),
         "amis": _amis(conn, moi),
@@ -1403,6 +1594,7 @@ def stats(conn) -> dict:
         **_reseau_prets(conn),
         **_stats_lecture(conn),
         **_stats_valeur(conn, moi),
+        **_stats_bibliothecaires(conn, moi),
         # Activité : livres ajoutés par jour, sur un peu plus d'un an
         "activite": {r[0]: r[1] for r in conn.execute(
             "SELECT date(ajoute_le) AS jour, count(*) FROM exemplaires WHERE ajoute_le >= ? AND proprietaire_id = ? "
@@ -1467,13 +1659,13 @@ def nb_prets(conn) -> int:
 
 def prets(conn, en_cours: bool = True) -> list[dict]:
     """Mes prêts (ceux des amis ne servent qu'au réseau et à savoir si leur livre est disponible)."""
-    sql = ("SELECT p.*, e.notice_id, n.isbn13, n.titre, n.auteurs FROM prets_v p "
+    sql = ("SELECT p.*, e.notice_id, n.isbn13, n.ean, n.titre, n.auteurs FROM prets_v p "
            "JOIN exemplaires e ON e.id = p.exemplaire_id JOIN notices n ON n.id = e.notice_id WHERE p.preteur_id = ? ")
     sql += "AND p.date_retour IS NULL ORDER BY p.date_pret" if en_cours else "ORDER BY p.date_pret DESC"
     out = []
     for r in conn.execute(sql, (db.moi_id(conn),)):
         d = dict(r, auteurs=db.jload(r["auteurs"], []))
-        d["reference"] = d["isbn13"] or f"L{d['notice_id']}"
+        d["reference"] = d["isbn13"] or d["ean"] or f"L{d['notice_id']}"
         out.append(d)
     return out
 

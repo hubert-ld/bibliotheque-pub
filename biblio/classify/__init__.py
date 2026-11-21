@@ -26,7 +26,7 @@ SYSTEMES = {
 }
 SYSTEME_DEFAUT = "dewey"
 # À changer quand la clé de tri change : les cotes sont alors recalculées une fois (db.init)
-VERSION_COTES = 2
+VERSION_COTES = 3
 SEPARATEUR_TRI = "\x01"          # avant tout caractère : 843 se range avant 843.1
 ARTICLES = {"le", "la", "les", "l", "un", "une", "des", "the", "a", "an", "der", "die",
             "das", "el", "los", "las", "il", "lo", "gli"}
@@ -120,6 +120,7 @@ def faits(notice: dict, manuels: dict) -> dict:
         "langue": notice.get("langue_originale") or notice.get("langue"),
         "bd": bd,
         "texte": texte,
+        "support": notice.get("support") or "livre",
         "classes": classes,
         "manuels": manuels,
     }
@@ -127,10 +128,12 @@ def faits(notice: dict, manuels: dict) -> dict:
 
 def calculer(notice: dict, manuels: dict | None = None) -> dict[str, dict | None]:
     """Calcule toutes les classifications d'une notice (sans toucher la base)."""
-    from . import cadre, cdu, dewey, lcc, regles
+    from . import cadre, cdu, dewey, lcc, media, regles
 
     manuels = manuels or {}
     f = faits(notice, manuels)
+    if f["support"] != "livre":
+        return media.calculer(notice, f)
     out = {}
     out["dewey"] = dewey.classer(notice, f)
     f["dewey"] = (out["dewey"] or {}).get("code") or ""

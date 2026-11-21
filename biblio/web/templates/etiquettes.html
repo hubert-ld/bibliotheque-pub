@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Étiquettes") }}{% endblock %}
+{% block content %}
+<div class="entete-page no-print">
+  <div><h1>{{ _("Étiquettes d'emplacement") }}</h1>
+    <span class="doux">{{ _("Collez-les sur vos étagères : les scanner choisit l'emplacement, puis on scanne les livres.") }}</span></div>
+  <div class="ligne-form">
+    <form method="get" class="ligne-form"><select name="lieu" onchange="this.form.submit()" aria-label="{{ _('Lieu') }}">
+      <option value="">{{ _("Tous les lieux") }}</option>
+      {% for l in lieux %}<option value="{{ l.id }}" {{ 'selected' if lieu == l.id|string }}>{{ l.nom }}</option>{% endfor %}
+    </select></form>
+    <button type="button" class="principal" onclick="window.print()">{{ _("Imprimer") }}</button>
+  </div>
+</div>
+{% if planche %}
+<div class="planche-etiquettes">
+  {% for e in planche %}<figure class="etiquette">{{ e.svg | safe }}<figcaption>{{ e.nom }}</figcaption></figure>{% endfor %}
+</div>
+{% else %}
+<div class="vide-etat carte"><h2>{{ _("Aucun lieu") }}</h2><p><a href="/lieux">{{ _("Créez vos bibliothèques") }}</a></p></div>
+{% endif %}
+{% endblock %}

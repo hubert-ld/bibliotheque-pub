@@ -46,7 +46,7 @@ def parse(payload: str, isbn13: str) -> dict | None:
     n["titre"] = v.get("title")
     n["sous_titre"] = v.get("subtitle")
     for name in v.get("authors") or []:
-        n["auteurs"].append(name)
+        n["auteurs"].append(name.rstrip(" ,"))           # « Hatier, » : il laisse parfois la virgule du catalogage
         n["auteurs_tri"].append(tri_name(*split_name(name)))
     n["editeur"] = v.get("publisher")
     n["annee"] = year_of(v.get("publishedDate"))

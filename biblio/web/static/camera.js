@@ -25,15 +25,15 @@
   btnOuvrir.hidden = false;
 
   let detecteur = null, flux = null, piste = null, actif = false, lampe = false;
-  let cameras = [], cameraChoisie = null, repriseAuRetour = false, verrouEcran = null;
+  let cameras = [], cameraChoisie = null, repriseAuRetour = false;
   let dernierLu = "", lecturesIdentiques = 0, nbLivres = 0, noticeAffichee = null;
   const vus = new Map();                       // code -> dernière fois qu'il était dans le viseur
   const toile = document.createElement("canvas");
   const ctx = toile.getContext("2d", { willReadFrequently: true });
 
-  // --- validation : ISBN-13 (978/979) avec clé EAN correcte -------------------
-  function isbnValide(code) {
-    if (!/^97[89]\d{10}$/.test(code)) return false;
+  // --- validation : EAN-13 avec clé correcte (livre, disque, film, étiquette) ---
+  function eanValide(code) {
+    if (!/^\d{13}$/.test(code)) return false;
     let somme = 0;
     for (let i = 0; i < 12; i++) somme += +code[i] * (i % 2 ? 3 : 1);
     return (10 - (somme % 10)) % 10 === +code[12];
@@ -48,7 +48,7 @@
     });
   }
   async function creerDetecteur() {
-    const formats = ["ean_13"];
+    const formats = ["ean_13", "upc_a"];
     if ("BarcodeDetector" in window) {
       try {
         if ((await BarcodeDetector.getSupportedFormats()).includes("ean_13")) return new BarcodeDetector({ formats });
@@ -75,7 +75,6 @@
 
   async function ouvrir() {
     zone.hidden = false;
-    btnOuvrir.hidden = true;
     etat.hidden = false;
     etat.textContent = tr("Démarrage de la caméra…");
     majEntete();
@@ -122,9 +121,13 @@
     arreterFlux();
     quitterPleinEcran();
     zone.hidden = true;
-    btnOuvrir.hidden = false;
     memo(false);
+    if (poste.saisie === "camera") poste.choisirSaisie(poste.saisieMemorisee());
   }
+  // Un autre choix de saisie ferme la caméra
+  document.addEventListener("scan:saisie", (ev) => {
+    if (ev.detail.saisie !== "camera" && !zone.hidden) fermer();
+  });
 
   function memo(ouverte) {
     try { localStorage.setItem("scan.camera", ouverte ? "1" : "0"); } catch (e) {}
@@ -145,7 +148,7 @@
     $("cam-depart").hidden = true;
     $("cam-reglages").hidden = true;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    if (verrouEcran) { verrouEcran.release().catch(() => {}); verrouEcran = null; }
+    poste.libererEcran();
   }
 
   // Doit être appelé pendant un toucher : son, vrai plein écran (Android), écran allumé
@@ -154,15 +157,7 @@
     poste.debloquerSon();
     const racine = document.documentElement;
     if (racine.requestFullscreen && !document.fullscreenElement) racine.requestFullscreen().catch(() => {});
-    garderEcranAllume();
-  }
-
-  async function garderEcranAllume() {
-    if (!("wakeLock" in navigator) || verrouEcran) return;
-    try {
-      verrouEcran = await navigator.wakeLock.request("screen");
-      verrouEcran.addEventListener("release", () => { verrouEcran = null; });
-    } catch (e) {}
+    poste.garderEcranAllume();
   }
 
   // --- en-tête : mode et emplacement -------------------------------------------
@@ -178,22 +173,34 @@
     choixPlace.innerHTML = '<option value=":">' + tr("Non localisé") + "</option>";
     for (const l of poste.LIEUX) {
       choixPlace.add(new Option(l.nom, l.id + ":"));
-      for (const e of l.etageres) choixPlace.add(new Option("   " + l.nom + " › " + e.nom, l.id + ":" + e.id));
+      for (const e of l.etageres) {
+        choixPlace.add(new Option("   " + l.nom + " › " + e.nom, l.id + ":" + e.id));
+        for (const r of e.rangees) choixPlace.add(new Option("      " + l.nom + " › " + e.nom + " › " + r.nom, l.id + ":" + e.id + ":" + r.id));
+      }
     }
-    choixPlace.value = ($("lieu").value || "") + ":" + ($("lieu").value ? $("etagere").value : "");
+    choixPlace.value = ($("lieu").value || "") + ":" + ($("lieu").value ? $("etagere").value : "")
+      + ($("rangee").value ? ":" + $("rangee").value : "");
     $("cam-choix-mode").value = poste.mode;
-    $("cam-son").checked = $("son").checked;
     $("cam-reglages").hidden = false;
   }
 
+  // Bouton son : même réglage que la case « Bips sonores » de la page, mémorisé par scan.js
+  function majSon() {
+    const actif = $("son").checked;
+    $("camera-son").classList.toggle("muet", !actif);
+    $("camera-son").setAttribute("aria-pressed", String(actif));
+  }
+  $("son").addEventListener("change", majSon);
+  $("camera-son").addEventListener("click", () => {
+    $("son").checked = !$("son").checked;
+    $("son").dispatchEvent(new Event("change"));
+  });
+  majSon();
+
   function appliquerReglages() {
-    const [lieu, etagere] = $("cam-choix-place").value.split(":");
-    poste.choisirEmplacement(lieu, etagere);
+    const [lieu, etagere, rangee] = $("cam-choix-place").value.split(":");
+    poste.choisirEmplacement(lieu, etagere, rangee);
     poste.choisirMode($("cam-choix-mode").value);
-    if ($("son").checked !== $("cam-son").checked) {
-      $("son").checked = $("cam-son").checked;
-      $("son").dispatchEvent(new Event("change"));
-    }
     $("cam-reglages").hidden = true;
     majEntete();
   }
@@ -261,7 +268,8 @@
 
   function traiter(codes) {
     const maintenant = Date.now();
-    const code = codes.find(isbnValide);
+    // Un UPC à 12 chiffres (disques américains) est un EAN-13 qui commence par 0
+    const code = codes.map((c) => (/^\d{12}$/.test(c) ? "0" + c : c)).find(eanValide);
     if (!code) return;
     // Deux lectures identiques de suite : écarte les fausses lectures
     lecturesIdentiques = code === dernierLu ? lecturesIdentiques + 1 : 1;
@@ -282,6 +290,7 @@
 
   // --- boutons et cycle de vie ------------------------------------------------
   btnOuvrir.addEventListener("click", () => {
+    if (!zone.hidden) return;                  // déjà ouverte
     poste.debloquerSon();
     ouvrir();
     if (tactile) pleinEcran(true);
@@ -300,8 +309,7 @@
       etat.textContent = tr("Dernier ajout annulé");
     }
   });
-  $("lieu").addEventListener("change", majEntete);
-  $("etagere").addEventListener("change", majEntete);
+  document.addEventListener("scan:emplacement", majEntete);
   document.querySelectorAll(".modes button").forEach((b) => b.addEventListener("click", majEntete));
   btnLampe.addEventListener("click", () => {
     if (!piste) return;
@@ -321,7 +329,7 @@
     else if (!document.hidden && repriseAuRetour) {
       repriseAuRetour = false;
       ouvrir();
-      if (zone.classList.contains("immersif")) garderEcranAllume();
+      if (zone.classList.contains("immersif")) poste.garderEcranAllume();
     }
   });
 
@@ -329,6 +337,7 @@
   let rouvrir = demandee;
   try { rouvrir = rouvrir || (tactile && localStorage.getItem("scan.camera") === "1"); } catch (e) {}
   if (rouvrir) {
+    poste.choisirSaisie("camera");
     ouvrir();
     if (tactile) pleinEcran(false);       // sans toucher : « Touchez l'écran pour commencer »
   }

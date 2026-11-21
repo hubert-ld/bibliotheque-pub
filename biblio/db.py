@@ -2,7 +2,7 @@
 
 Trois identités stables d'une base à l'autre, jamais déduites d'un nom :
   personnes.uid    une personne (moi, un ami, un emprunteur) ; son nom peut changer
-  notices.uid      un livre décrit ; l'ISBN n'est qu'un de ses champs, souvent absent
+  notices.uid      un livre, un disque ou un film décrit ; l'ISBN ou l'EAN n'en est qu'un champ, parfois absent
   exemplaires.uid  un objet physique
 """
 
@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import unicodedata
 import uuid
@@ -19,12 +20,29 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB = PROJECT_DIR / "data" / "biblio.db"
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 NOM_PAR_DEFAUT = "Moi"
+# Auteur d'un scan fait avec la clé du QR code : n'importe qui peut l'utiliser. Un compte ne peut pas porter ce nom.
+PAR_TELEPHONE = "*telephone"
 
 log = logging.getLogger("biblio.db")
 
-SCHEMA = """
+# Un passage sous la douchette. Par son nom en texte : `comptes` reste propre à chaque base.
+TABLE_SCANS = """CREATE TABLE IF NOT EXISTS scans (
+    id            INTEGER PRIMARY KEY,
+    uid           TEXT NOT NULL UNIQUE,
+    exemplaire_id INTEGER NOT NULL REFERENCES exemplaires(id) ON DELETE CASCADE,
+    par           TEXT,
+    le            TEXT NOT NULL,
+    mode          TEXT NOT NULL                    -- ajout | deplacement | inventaire | ou
+)"""
+INDEX_SCANS = "CREATE INDEX IF NOT EXISTS scans_par ON scans(par)"
+INDEX_SCANS_EXEMPLAIRE = "CREATE INDEX IF NOT EXISTS scans_exemplaire ON scans(exemplaire_id)"
+
+SCHEMA = f"""{TABLE_SCANS};
+{INDEX_SCANS};
+{INDEX_SCANS_EXEMPLAIRE};
+""" + """
 CREATE TABLE IF NOT EXISTS meta (
     cle    TEXT PRIMARY KEY,
     valeur TEXT
@@ -39,11 +57,19 @@ CREATE TABLE IF NOT EXISTS personnes (
     maj_le TEXT NOT NULL
 );
 
--- La notice décrit un livre. isbn13 est vide pour les livres anciens ou autoédités.
+-- La notice décrit un livre, un disque ou un film. isbn13 est vide pour les livres anciens ou autoédités,
+-- et pour les autres supports, désignés par leur ean. Disques et films reprennent les colonnes des livres :
+-- auteurs = artistes ou réalisateur, editeur = label ou studio, sujets = genres.
 CREATE TABLE IF NOT EXISTS notices (
     id               INTEGER PRIMARY KEY,
     uid              TEXT NOT NULL UNIQUE,
     isbn13           TEXT UNIQUE,
+    support          TEXT NOT NULL DEFAULT 'livre',  -- livre | cd | vinyle | cassette | dvd | bluray | inconnu
+    ean              TEXT,                         -- code-barres hors ISBN, sur 13 chiffres
+    ref_catalogue    TEXT,                         -- numéro de catalogue du label
+    pistes           TEXT NOT NULL DEFAULT '[]',   -- JSON : [{"titre", "duree" (s), "disque"}, ...]
+    duree            INTEGER,                      -- minutes
+    nb_disques       INTEGER,
     titre            TEXT,
     sous_titre       TEXT,
     auteurs          TEXT NOT NULL DEFAULT '[]',   -- JSON : ["Prénom Nom", ...]
@@ -74,6 +100,7 @@ CREATE TABLE IF NOT EXISTS notices (
     cree_le          TEXT NOT NULL,
     maj_le           TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS notices_ean ON notices(ean);
 CREATE INDEX IF NOT EXISTS notices_statut ON notices(statut);
 CREATE INDEX IF NOT EXISTS notices_lecture ON notices(lecture);
 
@@ -105,8 +132,10 @@ CREATE TABLE IF NOT EXISTS lieux (
     nom         TEXT NOT NULL UNIQUE COLLATE NOCASE,
     description TEXT,
     ordre       INTEGER NOT NULL DEFAULT 0,
+    etiquette   TEXT,                              -- 9 chiffres : le code-barres imprimé, le même dans toutes mes bases
     maj_le      TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS lieux_etiquette ON lieux(etiquette);
 
 CREATE TABLE IF NOT EXISTS etageres (
     id      INTEGER PRIMARY KEY,
@@ -114,9 +143,23 @@ CREATE TABLE IF NOT EXISTS etageres (
     lieu_id INTEGER NOT NULL REFERENCES lieux(id) ON DELETE CASCADE,
     nom     TEXT NOT NULL COLLATE NOCASE,
     ordre   INTEGER NOT NULL DEFAULT 0,
+    etiquette TEXT,
     maj_le  TEXT NOT NULL,
     UNIQUE (lieu_id, nom)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS etageres_etiquette ON etageres(etiquette);
+
+CREATE TABLE IF NOT EXISTS rangees (
+    id         INTEGER PRIMARY KEY,
+    uid        TEXT NOT NULL UNIQUE,
+    etagere_id INTEGER NOT NULL REFERENCES etageres(id) ON DELETE CASCADE,
+    nom        TEXT NOT NULL COLLATE NOCASE,
+    ordre      INTEGER NOT NULL DEFAULT 0,
+    etiquette  TEXT,
+    maj_le     TEXT NOT NULL,
+    UNIQUE (etagere_id, nom)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS rangees_etiquette ON rangees(etiquette);
 
 -- L'exemplaire est l'objet physique, rangé quelque part, et appartient à quelqu'un.
 -- lieu_texte : lieu d'un livre qui n'est pas chez moi (« Salon › É2 » chez Victor).
@@ -127,6 +170,7 @@ CREATE TABLE IF NOT EXISTS exemplaires (
     proprietaire_id INTEGER NOT NULL REFERENCES personnes(id),
     lieu_id         INTEGER REFERENCES lieux(id) ON DELETE SET NULL,
     etagere_id      INTEGER REFERENCES etageres(id) ON DELETE SET NULL,
+    rangee_id       INTEGER REFERENCES rangees(id) ON DELETE SET NULL,
     lieu_texte      TEXT,
     -- Personnel : jamais dans un fichier de partage
     etat            TEXT,                          -- neuf | tres_bon | bon | moyen | abime
@@ -137,7 +181,11 @@ CREATE TABLE IF NOT EXISTS exemplaires (
     valeur          REAL,
     notes           TEXT,
     ajoute_le       TEXT NOT NULL,
-    maj_le          TEXT NOT NULL
+    maj_le          TEXT NOT NULL,
+    -- Qui a scanné : jamais dans un fichier de partage. Un scan ne change pas maj_le.
+    ajoute_par       TEXT,
+    dernier_scan_le  TEXT,
+    dernier_scan_par TEXT
 );
 CREATE INDEX IF NOT EXISTS exemplaires_notice ON exemplaires(notice_id);
 CREATE INDEX IF NOT EXISTS exemplaires_lieu ON exemplaires(lieu_id, etagere_id);
@@ -149,8 +197,10 @@ CREATE TABLE IF NOT EXISTS mouvements (
     exemplaire_id INTEGER NOT NULL REFERENCES exemplaires(id) ON DELETE CASCADE,
     de_lieu       INTEGER,
     de_etagere    INTEGER,
+    de_rangee     INTEGER,
     vers_lieu     INTEGER,
     vers_etagere  INTEGER,
+    vers_rangee   INTEGER,
     date          TEXT NOT NULL
 );
 
@@ -158,11 +208,12 @@ CREATE TABLE IF NOT EXISTS inventaires (
     id         INTEGER PRIMARY KEY,
     lieu_id    INTEGER NOT NULL REFERENCES lieux(id) ON DELETE CASCADE,
     etagere_id INTEGER REFERENCES etageres(id) ON DELETE CASCADE,
+    rangee_id  INTEGER REFERENCES rangees(id) ON DELETE CASCADE,
     debut      TEXT NOT NULL,
     fin        TEXT
 );
 
--- code : ISBN-13 ou référence (L12). Un scan peut porter sur un livre absent de la base.
+-- code : ISBN-13, EAN ou référence (L12). Un scan peut porter sur un livre absent de la base.
 CREATE TABLE IF NOT EXISTS inventaire_scans (
     inventaire_id INTEGER NOT NULL REFERENCES inventaires(id) ON DELETE CASCADE,
     code          TEXT NOT NULL,
@@ -185,8 +236,62 @@ CREATE TABLE IF NOT EXISTS prets (
 -- Ce qui a été supprimé : la synchronisation ne doit pas le faire revenir.
 CREATE TABLE IF NOT EXISTS suppressions (
     uid   TEXT PRIMARY KEY,
-    genre TEXT NOT NULL,                           -- exemplaire | lieu | etagere
+    genre TEXT NOT NULL,                           -- exemplaire | lieu | etagere | rangee
     le    TEXT NOT NULL
+);
+
+-- Comptes et suivi : propres à cette base, jamais dans un fichier de partage ni une synchronisation.
+CREATE TABLE IF NOT EXISTS comptes (
+    id                 INTEGER PRIMARY KEY,
+    identifiant        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    nom                TEXT,
+    role               TEXT NOT NULL,                  -- lecteur | contributeur | bibliothecaire | admin
+    code_hash          TEXT NOT NULL,
+    actif              INTEGER NOT NULL DEFAULT 1,
+    cree_le            TEXT NOT NULL,
+    derniere_connexion TEXT
+);
+
+-- Un appareil connecté. Seule l'empreinte du jeton est gardée : lire la base ne permet pas d'entrer.
+CREATE TABLE IF NOT EXISTS sessions (
+    id         INTEGER PRIMARY KEY,
+    jeton_hash TEXT NOT NULL UNIQUE,
+    compte_id  INTEGER NOT NULL REFERENCES comptes(id) ON DELETE CASCADE,
+    appareil   TEXT,
+    ip         TEXT,
+    souvenir   INTEGER NOT NULL DEFAULT 1,
+    cree_le    TEXT NOT NULL,
+    vu_le      TEXT NOT NULL,
+    expire_le  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_compte ON sessions(compte_id);
+
+CREATE TABLE IF NOT EXISTS tentatives (
+    identifiant   TEXT NOT NULL,
+    ip            TEXT NOT NULL,
+    nb            INTEGER NOT NULL DEFAULT 0,
+    bloque_jusqua TEXT,
+    derniere      TEXT,
+    PRIMARY KEY (identifiant, ip)
+);
+
+CREATE TABLE IF NOT EXISTS journal (
+    id     INTEGER PRIMARY KEY,
+    le     TEXT NOT NULL,
+    acteur TEXT,
+    action TEXT NOT NULL,
+    detail TEXT,
+    ip     TEXT
+);
+
+-- État des catalogues, tel que vu par le dernier test de la page d'administration
+CREATE TABLE IF NOT EXISTS sources_etat (
+    source   TEXT PRIMARY KEY,
+    actif    INTEGER NOT NULL DEFAULT 1,
+    etat     TEXT,                                     -- ok | lent | panne | sans_cle | cle_refusee
+    latence  INTEGER,                                  -- millisecondes
+    message  TEXT,
+    teste_le TEXT
 );
 
 CREATE VIEW IF NOT EXISTS exemplaires_v AS
@@ -319,6 +424,14 @@ def jdump(value) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def nouvelle_etiquette(conn: sqlite3.Connection, table: str) -> str:
+    """Numéro imprimé sur l'étiquette d'un lieu, d'une étagère ou d'une rangée (voir etiquettes.py)."""
+    while True:
+        valeur = f"{secrets.randbelow(10**9):09d}"
+        if not conn.execute(f"SELECT 1 FROM {table} WHERE etiquette = ?", (valeur,)).fetchone():
+            return valeur
+
+
 # --- Moi --------------------------------------------------------------------------
 
 def moi_id(conn: sqlite3.Connection) -> int:
@@ -337,18 +450,18 @@ def moi_id(conn: sqlite3.Connection) -> int:
 # --- Notices ----------------------------------------------------------------------
 
 def reference(notice) -> str:
-    """Ce qui désigne un livre pour l'utilisateur : son ISBN, sinon L + son numéro (L12)."""
-    return notice["isbn13"] or f"L{notice['id']}"
+    """Ce qui désigne une notice pour l'utilisateur : son ISBN ou son EAN, sinon L + son numéro (L12)."""
+    return notice["isbn13"] or notice["ean"] or f"L{notice['id']}"
 
 
 def id_notice(conn: sqlite3.Connection, ref: int | str) -> int | None:
-    """Numéro d'une notice d'après son numéro, sa référence (L12) ou son ISBN-13."""
+    """Numéro d'une notice d'après son numéro, sa référence (L12), son ISBN-13 ou son EAN."""
     if isinstance(ref, int):
         return ref
     ref = ref.strip()
     m = re.fullmatch(r"[Ll]?(\d{1,9})", ref)      # un ISBN a 13 chiffres : pas de confusion avec un numéro
     row = (conn.execute("SELECT id FROM notices WHERE id = ?", (int(m.group(1)),)) if m
-           else conn.execute("SELECT id FROM notices WHERE isbn13 = ?", (ref,))).fetchone()
+           else conn.execute("SELECT id FROM notices WHERE isbn13 = ? OR ean = ?", (ref, ref))).fetchone()
     return row["id"] if row else None
 
 
@@ -358,7 +471,7 @@ def notice_dict(row: sqlite3.Row | None) -> dict | None:
         return None
     d = dict(row)
     for key, defaut in (("auteurs", []), ("sujets", []), ("classes_source", {}),
-                        ("sources", []), ("corrections", {})):
+                        ("sources", []), ("corrections", {}), ("pistes", [])):
         if key in d:
             d[key] = jload(d[key], defaut)
     if "corrections" in d:
@@ -370,8 +483,8 @@ def notice_dict(row: sqlite3.Row | None) -> dict | None:
 
 
 def cle_couverture(notice) -> str:
-    """Nom du fichier de couverture : l'ISBN (commun à toutes les bases), sinon l'uid, unique partout."""
-    return notice["isbn13"] or notice["uid"]
+    """Nom du fichier de couverture : l'ISBN ou l'EAN (communs à toutes les bases), sinon l'uid, unique partout."""
+    return notice["isbn13"] or notice["ean"] or notice["uid"]
 
 
 def reindex_notice(conn: sqlite3.Connection, notice_id: int) -> None:
@@ -393,7 +506,7 @@ def reindex_notice(conn: sqlite3.Connection, notice_id: int) -> None:
             n["editeur"],
             n["collection"],
             " ; ".join(n["sujets"]),
-            n["resume"],
+            " ".join(filter(None, [n["resume"], *(p.get("titre") for p in n["pistes"])])),
             " ".join(filter(None, [n["notes"], notes_ex])),
         ),
     )

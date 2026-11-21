@@ -1,6 +1,6 @@
 [project]
 name = "biblio"
-version = "0.4.1"
+version = "0.6.0"
 description = "Personal library software: barcode scanning, places, Dewey/UDC/Clil/Thema/custom classifications"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -24,7 +24,11 @@ dependencies = [
 biblio = "biblio.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "pytest-playwright>=0.10.0",
+    "ruff>=0.17.4",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -33,6 +37,29 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["biblio"]
 
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = [
+    "I001",    # imports regroupés sur une ligne longue, à la main : le tri de ruff en mettrait un par ligne
+    "FURB167", # re.I, re.S : forme courte assumée
+    "RUF100",  # les noqa expliquent une règle volontaire même quand elle n'est pas activée ici
+    "B008",    # Depends(), Form(), typer.Option() en valeur par défaut : c'est l'usage de FastAPI et de Typer
+    "C408",    # dict(a=…) est voulu là où il se lit mieux
+    "SIM102",  # if imbriqués gardés quand un commentaire porte sur la condition intérieure
+    "TRY201",  # `raise erreur` relance l'erreur d'origine après avoir tenté une autre lecture du code
+    "BLE001",  # les except Exception restants protègent un service qui doit continuer (worker, santé, CLI)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F811"]   # une fixture pytest porte le nom du paramètre qui la reçoit
+"deploy/retention.py" = ["EXE001"]   # lancé par python, pas exécuté directement
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient`",
+    "ignore:Session-scoped fixtures defined as instance methods:DeprecationWarning",   # pytest-playwright 0.10
+]
+markers = ["navigateur: dans Chromium, plus lent (pytest -m 'not navigateur' pour les sauter)"]

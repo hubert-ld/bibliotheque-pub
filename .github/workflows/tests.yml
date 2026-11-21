@@ -1,0 +1,46 @@
+# Lance ruff et tous les tests à chaque envoi sur main et à chaque pull request.
+# Linux et Windows ; macOS est testé en local.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:          # bouton « Run workflow » dans l'onglet Actions
+
+concurrency:                  # un nouvel envoi annule la vérification encore en cours du précédent
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false        # une panne sous Windows n'arrête pas Linux
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true  # Python (.python-version) et dépendances (uv.lock) gardés d'une fois sur l'autre
+
+      - name: Dépendances
+        run: uv sync --locked
+
+      - name: ruff
+        if: runner.os == 'Linux'
+        run: uv run ruff check
+
+      # Les bibliothèques système ne manquent que sous Linux : sous Windows, --with-deps ajoute
+      # Media Foundation, quatre minutes pour rien (les tests n'ont ni son ni vidéo).
+      - name: Chromium pour les tests du navigateur
+        run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
+
+      # Le nom de chaque test, les 25 plus lents à la fin, et la pile de tous les fils
+      # si un test dépasse 2 minutes : de quoi savoir où le temps passe sur chaque système.
+      - name: Tests
+        run: uv run pytest -v --durations=25 -o faulthandler_timeout=120

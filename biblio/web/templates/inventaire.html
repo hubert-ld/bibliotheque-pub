@@ -20,7 +20,7 @@
 <table class="table empilee"><tbody>
   {% for n in items %}
     <tr><td style="width:10em">{{ cote(n.cote) }}</td><td class="large"><a class="titre" href="/livre/{{ n.id }}">{{ n.titre or n.reference }}</a>
-      <div class="doux" style="font-size:.85rem">{{ n.auteurs | auteurs }}</div></td>
+      <div class="doux" style="font-size:.85rem">{{ n.auteurs | join(', ') }}</div></td>
       <td style="font-size:.88rem">{{ caller(n) if caller else '' }}</td></tr>
   {% endfor %}
 </tbody></table>
@@ -43,8 +43,8 @@
 {% if not inv.fin %}
 <form method="post" action="/inventaire/{{ inv.id }}/cloturer" class="carte" style="margin-top:1.5rem">
   <h2>{{ _("Clôturer l'inventaire") }}</h2>
-  {% if r.ailleurs %}<p><label><input type="checkbox" name="ranger" value="1" checked> {{ _("Enregistrer les {n} livre(s) « d'ailleurs » à cet emplacement", n=r.ailleurs | length) }}</label></p>{% endif %}
-  {% if r.inconnus %}<p><label><input type="checkbox" name="ajouter" value="1" checked> {{ _("Ajouter les {n} livre(s) inconnu(s) à la collection, ici", n=r.inconnus | length) }}</label></p>{% endif %}
+  {% if r.ailleurs %}<p><label class="case"><input type="checkbox" name="ranger" value="1" checked> <span>{{ pluriel(r.ailleurs | length, "Enregistrer le livre « d'ailleurs » à cet emplacement", "Enregistrer les {n} livres « d'ailleurs » à cet emplacement") }}</span></label></p>{% endif %}
+  {% if r.inconnus %}<p><label class="case"><input type="checkbox" name="ajouter" value="1" checked> <span>{{ pluriel(r.inconnus | length, "Ajouter le livre inconnu à la collection, ici", "Ajouter les {n} livres inconnus à la collection, ici") }}</span></label></p>{% endif %}
   <button class="principal">{{ _("Clôturer") }}</button>
 </form>
 {% endif %}

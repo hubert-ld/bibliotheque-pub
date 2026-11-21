@@ -1,5 +1,8 @@
 """Appli web locale : poste de scan, catalogue, fiches, lieux, inventaires."""
 
+import base64
+import binascii
+import hashlib
 import sys
 import tempfile
 from contextlib import asynccontextmanager
@@ -15,9 +18,11 @@ from fastapi.templating import Jinja2Templates
 import segno
 from markdown_it import MarkdownIt
 from markupsafe import Markup
+from starlette.datastructures import UploadFile
 
-from .. import __version__, certs, covers, db, export, i18n, partage, resolver, services, telephone
-from ..i18n import tr
+from .. import __version__, auth, babelio, certs, codes, covers, db, etiquettes, export, i18n, partage, resolver, services, telephone
+from ..i18n import pluriel, tr
+from ..isbn import IsbnError, sans_azerty
 from ..classify import SYSTEMES, systeme_courant
 from ..classify.regles import options as options_regles
 from ..services import Erreur
@@ -40,11 +45,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Bibliothèque", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
+# Dans l'adresse des scripts et styles : elle change avec leur contenu, donc un navigateur (surtout
+# celui d'un téléphone) ne garde pas une ancienne version après un déploiement sans changement de numéro.
+_statiques = sorted(p for p in (HERE / "static").iterdir() if p.is_file())
+templates.env.globals.update(empreinte_statique=hashlib.sha256(b"".join(p.read_bytes() for p in _statiques)).hexdigest()[:12])
 templates.env.globals.update(SYSTEMES=SYSTEMES, version=__version__, FORMES=services.FORMES,
                              PUBLICS=services.PUBLICS, NOMS_FORMES=services.NOMS_FORMES,
                              LECTURES=services.LECTURES, NOMS_LECTURES=services.NOMS_LECTURES,
-                             ETATS=services.ETATS, NOMS_ETATS=services.NOMS_ETATS)
-templates.env.filters["auteurs"] = lambda a: ", ".join(a or [])
+                             ETATS=services.ETATS, NOMS_ETATS=services.NOMS_ETATS,
+                             SUPPORTS=services.SUPPORTS, NOMS_SUPPORTS=services.NOMS_SUPPORTS,
+                             MUSIQUE=services.MUSIQUE, FILMS=services.FILMS)
 
 # Notes des livres en Markdown. HTML brut désactivé : une note ne peut pas glisser de script.
 _markdown = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
@@ -60,7 +70,7 @@ _markdown.add_render_rule("link_open", _lien_externe)
 templates.env.filters["markdown"] = lambda texte: Markup(_markdown.render(texte or ""))
 STATUTS = {"en_attente": "en attente", "trouve": "trouvé", "introuvable": "introuvable",
            "erreur": "erreur", "manuel": "saisi à la main"}
-templates.env.globals.update(_=tr, LANGUES=i18n.LANGUES, langue=i18n.langue,
+templates.env.globals.update(_=tr, pluriel=pluriel, LANGUES=i18n.LANGUES, langue=i18n.langue,
                              nom_statut=lambda s: tr(STATUTS.get(s, s)))
 
 
@@ -93,17 +103,43 @@ def changer_langue(request: Request, langue: str = Form(...), suite: str = Form(
 
 LOCAL = {"127.0.0.1", "::1"}
 LIBRE = ("/static/",)          # aucune donnée de la bibliothèque
-# Réservé à l'ordinateur et à la clé admin : les téléphones ne changent pas les réglages
-ADMIN_SEULEMENT = ("/reglages", "/telephone", "/partage.db", "/systeme", "/langue")
 
 
-def _reserve_admin(chemin: str) -> bool:
-    return any(chemin == p or chemin.startswith(p + "/") for p in ADMIN_SEULEMENT)
+def _role(request: Request) -> str | None:
+    return getattr(request.state, "role", None)
 
 
 def _admin(request: Request) -> bool:
-    """L'ordinateur lui-même, ou un appareil qui a présenté la clé admin (rôle posé par le middleware)."""
-    return getattr(request.state, "role", None) == "admin"
+    """L'ordinateur lui-même, la clé admin, ou un compte administrateur (rôle posé par le middleware)."""
+    return _role(request) == "admin"
+
+
+def _peut(request: Request, droit: str) -> bool:
+    return auth.peut(_role(request), droit)
+
+
+def _qui(request: Request) -> str:
+    """Pour le journal : le compte, sinon par où la personne est entrée."""
+    compte = getattr(request.state, "compte", None)
+    if compte:
+        return compte["identifiant"]
+    if getattr(request.state, "cle", None):
+        return tr("clé admin") if _admin(request) else tr("clé du téléphone")
+    return tr("cet ordinateur")
+
+
+def _bibliothecaire(request: Request, conn) -> str:
+    """À qui compter un scan : le compte, le téléphone partagé, sinon le propriétaire de cet ordinateur."""
+    compte = getattr(request.state, "compte", None)
+    if compte:
+        return compte["identifiant"]
+    if getattr(request.state, "cle", None) and not _admin(request):
+        return db.PAR_TELEPHONE
+    return services.bibliothecaire_local(conn)
+
+
+def _ip(request: Request) -> str:
+    return request.client.host if request.client else ""
 NOMS_LOCAUX = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -126,8 +162,8 @@ def _origine_valide(request: Request) -> bool:
 
 @app.middleware("http")
 async def acces_reseau(request: Request, call_next):
-    """L'ordinateur lui-même passe librement ; tout autre appareil doit présenter une clé :
-    celle du QR code (téléphones, sans les réglages) ou la clé admin (tout)."""
+    """L'ordinateur lui-même passe librement ; tout autre appareil doit être connecté, ou présenter
+    une clé : celle du QR code (sans les réglages) ou la clé admin (tout). Ensuite, le rôle décide."""
     i18n.utiliser(_langue_choisie())
     if request.url.path.startswith(LIBRE):
         return await call_next(request)
@@ -137,6 +173,8 @@ async def acces_reseau(request: Request, call_next):
     if client in LOCAL:
         request.state.role = "admin"
         return await call_next(request)
+    request.state.compte = request.state.cle = None
+    renouveler = None
     conn = db.connect()
     try:
         proposee = request.query_params.get("cle")
@@ -148,29 +186,48 @@ async def acces_reseau(request: Request, call_next):
             reponse.set_cookie(telephone.COOKIE, proposee, max_age=365 * 86400, httponly=True,
                                samesite="lax", secure=request.url.scheme == "https")
             return reponse
-        role = telephone.role(conn, request.cookies.get(telephone.COOKIE))
+        jeton = request.cookies.get(auth.COOKIE)
+        session = auth.session(conn, jeton)
+        if session:
+            request.state.compte = session
+            role = session["role"]
+            renouveler = jeton if session["renouvele"] else None
+        else:
+            cle = request.cookies.get(telephone.COOKIE)
+            role = auth.ROLE_DE_LA_CLE.get(telephone.role(conn, cle))
+            request.state.cle = cle if role else None
     finally:
         conn.close()
-    if role is None:
-        return HTMLResponse(page_refusee(), status_code=403)
     request.state.role = role
-    if role != "admin" and _reserve_admin(request.url.path):
-        if request.method in ("GET", "HEAD"):
-            return RedirectResponse("/scan", status_code=303)
-        return PlainTextResponse(tr("Réservé à l'administration de la bibliothèque."), status_code=403)
-    return await call_next(request)
+    chemin = request.url.path
+    if chemin not in auth.SANS_CONNEXION:
+        refus = _refus_d_acces(request, role, chemin)
+        if refus:
+            return refus
+    reponse = await call_next(request)
+    if renouveler:
+        _poser_cookie(request, reponse, renouveler, True)
+    return reponse
 
 
-def page_refusee() -> str:
-    return f"""<!doctype html><html lang="{i18n.langue()}"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>{tr("Accès refusé")}</title>
-<script>/* Thème choisi sur cet appareil, posé avant l'affichage (sinon : celui du système) */
-try {{ const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch (e) {{}}</script>
-<link rel="stylesheet" href="/static/style.css"><main><div class="vide-etat carte">
-<h1>{tr("Accès refusé")}</h1>
-<p>{tr("Sur l'ordinateur, ouvrez la page « Téléphone » de la bibliothèque et scannez le QR code « Scanner » avec ce téléphone.")}</p>
-<p class="doux">{tr("Depuis l'icône de l'écran d'accueil : supprimez l'icône, rouvrez le QR code « Scanner » dans Safari, puis Partager › « Sur l'écran d'accueil ».")}</p>
-</div></main></html>"""
+def _refus_d_acces(request: Request, role: str | None, chemin: str) -> Response | None:
+    """Toute route non déclarée dans auth.REGLES est réservée à l'admin."""
+    page_web = request.method in ("GET", "HEAD") and not chemin.startswith("/api/")
+    if role is None:
+        if page_web:
+            suite = chemin + ("?" + request.url.query if request.url.query else "")
+            return RedirectResponse("/connexion?" + urlencode({"suite": suite}), status_code=303)
+        return PlainTextResponse(tr("Connectez-vous d'abord."), status_code=403)
+    if auth.peut(role, auth.droit_requis(request.method, chemin)):
+        return None
+    if page_web:
+        return RedirectResponse("/scan", status_code=303)
+    return PlainTextResponse(tr("Votre accès ne permet pas cette opération."), status_code=403)
+
+
+def _poser_cookie(request: Request, reponse: Response, jeton: str, souvenir: bool) -> None:
+    reponse.set_cookie(auth.COOKIE, jeton, max_age=int(auth.DUREE_SOUVENIR.total_seconds()) if souvenir else None,
+                       httponly=True, samesite="lax", secure=request.url.scheme == "https")
 
 
 def _date_code() -> float:
@@ -191,6 +248,9 @@ def page(request: Request, conn, template: str, **ctx) -> HTMLResponse:
     ctx["nb_prets"] = services.nb_prets(conn)
     ctx["chemin"] = request.url.path
     ctx["admin"] = _admin(request)
+    ctx["peut"] = lambda droit: _peut(request, droit)
+    ctx["compte"] = getattr(request.state, "compte", None)
+    ctx["nom_role"] = tr(auth.NOMS_ROLES.get(_role(request), ""))
     ctx["textes_js"] = i18n.textes_js()
     return templates.TemplateResponse(request, template, ctx)
 
@@ -213,6 +273,76 @@ def _id(value) -> int | None:
         return int(value) if value not in (None, "", "aucun") else None
     except ValueError:
         return None
+
+
+def _emplacement(valeur: str | None) -> tuple[int | None, int | None, int | None]:
+    """« lieu:étagère:rangée » (formulaires) -> trois numéros ; les derniers sont facultatifs."""
+    parts = (valeur or "").split(":")
+    return tuple(_id(p) for p in (parts + ["", "", ""])[:3])
+
+
+# --- Connexion -----------------------------------------------------------------
+
+@app.get("/connexion", response_class=HTMLResponse)
+def connexion_page(request: Request, suite: str = "/scan"):
+    if _role(request):
+        return retour(suite if _chemin_local(suite) else "/scan")
+    return templates.TemplateResponse(request, "connexion.html", {
+        "suite": suite, "err": None, "identifiant": "", "version": __version__})
+
+
+@app.post("/connexion", response_class=HTMLResponse)
+def connexion(request: Request, identifiant: str = Form(""), code: str = Form(""), suite: str = Form("/scan"),
+              souvenir: str = Form(""), conn=Depends(get_conn)):
+    try:
+        compte = auth.connecter(conn, identifiant, code, _ip(request))
+    except auth.Refus as e:
+        return templates.TemplateResponse(request, "connexion.html", {
+            "suite": suite, "err": str(e), "identifiant": identifiant, "version": __version__}, status_code=403)
+    jeton = auth.ouvrir_session(conn, compte["id"], request.headers.get("user-agent"), _ip(request), bool(souvenir))
+    reponse = retour(suite if _chemin_local(suite) else "/scan")
+    _poser_cookie(request, reponse, jeton, bool(souvenir))
+    return reponse
+
+
+@app.post("/deconnexion")
+def deconnexion(request: Request, conn=Depends(get_conn)):
+    auth.fermer_session(conn, request.cookies.get(auth.COOKIE))
+    reponse = RedirectResponse("/connexion", status_code=303)
+    reponse.delete_cookie(auth.COOKIE)
+    return reponse
+
+
+@app.get("/compte", response_class=HTMLResponse)
+def compte_page(request: Request, conn=Depends(get_conn)):
+    compte = getattr(request.state, "compte", None)
+    return page(request, conn, "compte.html", appareils=auth.appareils(conn, compte["id"]) if compte else [],
+                session_courante=compte["session_id"] if compte else None)
+
+
+@app.post("/compte/code")
+def compte_code(request: Request, actuel: str = Form(""), nouveau: str = Form(""), conn=Depends(get_conn)):
+    compte = getattr(request.state, "compte", None)
+    if not compte:
+        return retour("/compte", err=tr("cet accès n'a pas de compte"))
+    if not auth.verifier_code(actuel, auth.compte(conn, compte["id"])["code_hash"]):
+        return retour("/compte", err=tr("le code actuel est faux"))
+    try:
+        if not nouveau.strip():                         # vide : changer_code en générerait un, inconnu de la personne
+            raise auth.ErreurCompte(tr("le code doit faire au moins {n} caractères", n=auth.CODE_MIN))
+        auth.changer_code(conn, compte["id"], nouveau, garder_session=compte["session_id"])
+    except auth.ErreurCompte as e:
+        return retour("/compte", err=str(e))
+    auth.journaliser(conn, "code_change", compte["identifiant"], ip=_ip(request))
+    return retour("/compte", msg=tr("code changé ; vos autres appareils devront se reconnecter"))
+
+
+@app.post("/compte/appareil/{session_id}/couper")
+def compte_couper(request: Request, session_id: int, conn=Depends(get_conn)):
+    compte = getattr(request.state, "compte", None)
+    if compte:
+        auth.couper_appareil(conn, session_id, compte["id"])
+    return retour("/compte", msg=tr("appareil déconnecté"))
 
 
 # --- Poste de scan -------------------------------------------------------------
@@ -238,19 +368,27 @@ async def _corps_json(request: Request) -> dict:
 @app.post("/api/scan")
 async def api_scan(request: Request, conn=Depends(get_conn)):
     data = await _corps_json(request)
-    mode, code = data.get("mode", "ajout"), (data.get("code") or "").strip()
-    lieu_id, etagere_id = _id(data.get("lieu_id")), _id(data.get("etagere_id"))
+    mode, code = data.get("mode", "ajout"), sans_azerty((data.get("code") or "").strip())
+    lieu_id, etagere_id, rangee_id = _id(data.get("lieu_id")), _id(data.get("etagere_id")), _id(data.get("rangee_id"))
+    if mode != "ou" and not _peut(request, "scanner"):
+        return JSONResponse({"ok": False, "statut": "erreur", "code": code,
+                             "message": tr("Votre accès ne permet pas cette opération.")})
     # Scan gardé hors ligne : le téléphone a déjà écarté les doubles lectures, et le renvoi est rapide
     filtrer_rebond = not data.get("differe")
+    par = _bibliothecaire(request, conn)
     try:
+        etiquette = _code_etiquette(code)
+        if etiquette:                                    # scanner une étiquette choisit l'emplacement
+            return JSONResponse({"ok": True, "statut": "emplacement", "code": etiquette,
+                                 **services.lire_etiquette(conn, etiquette)})
         if mode == "ajout":
-            res = services.ajouter(conn, code, lieu_id, etagere_id, filtrer_rebond=filtrer_rebond)
+            res = services.ajouter(conn, code, lieu_id, etagere_id, filtrer_rebond=filtrer_rebond, rangee_id=rangee_id, par=par)
             if worker:
                 worker.wake()
         elif mode == "deplacement":
-            res = services.deplacer(conn, code, lieu_id, etagere_id)
+            res = services.deplacer(conn, code, lieu_id, etagere_id, rangee_id)
         elif mode == "ou":
-            res = services.localiser(conn, code)
+            res = services.localiser(conn, code, avec_emprunteur=_peut(request, "personnel"))
         elif mode == "inventaire":
             inv = _id(data.get("inventaire_id"))
             if not inv:
@@ -258,9 +396,18 @@ async def api_scan(request: Request, conn=Depends(get_conn)):
             res = services.scanner_inventaire(conn, inv, code, filtrer_rebond=filtrer_rebond)
         else:
             raise Erreur(tr("mode inconnu : {mode}", mode=mode))
+        services.noter_scan(conn, res, par, mode)
     except Erreur as e:
         return JSONResponse({"ok": False, "statut": "erreur", "message": str(e), "code": code})
     return JSONResponse(res)
+
+
+def _code_etiquette(code: str) -> str | None:
+    try:
+        genre, valeur = codes.analyser(code)
+    except IsbnError:
+        return None
+    return valeur if genre == "etiquette" else None
 
 
 @app.post("/api/annuler/{exemplaire_id}")
@@ -289,7 +436,7 @@ def api_etat(conn=Depends(get_conn)):
 async def api_inventaire(request: Request, conn=Depends(get_conn)):
     data = await _corps_json(request)
     try:
-        inv_id = services.demarrer_inventaire(conn, _id(data.get("lieu_id")), _id(data.get("etagere_id")))
+        inv_id = services.demarrer_inventaire(conn, _id(data.get("lieu_id")), _id(data.get("etagere_id")), _id(data.get("rangee_id")))
     except Erreur as e:
         return JSONResponse({"ok": False, "message": str(e)})
     return JSONResponse({"ok": True, "id": inv_id, **services.inventaire(conn, inv_id)})
@@ -309,7 +456,7 @@ def api_inventaire_etat(inv_id: int, conn=Depends(get_conn)):
 @app.get("/couverture/{ref}")
 def couverture(ref: str, conn=Depends(get_conn)):
     """Couverture servie depuis data/covers, téléchargée au premier affichage si besoin."""
-    n = conn.execute("SELECT id, isbn13, uid FROM notices WHERE id = ?", (db.id_notice(conn, ref),)).fetchone()
+    n = conn.execute("SELECT id, isbn13, ean, uid FROM notices WHERE id = ?", (db.id_notice(conn, ref),)).fetchone()
     if not n:
         return Response(status_code=404)
     cle = db.cle_couverture(n)
@@ -331,10 +478,10 @@ def couverture(ref: str, conn=Depends(get_conn)):
 PAR_PAGE = 60
 
 
-def _criteres(q, lieu, etagere, classe, statut, a_classer, du, au, proprio="", lecture="") -> dict:
+def _criteres(q, lieu, etagere, classe, statut, a_classer, du, au, proprio="", lecture="", rangee="", support="") -> dict:
     """Paramètres d'URL du catalogue -> filtres de services.rechercher / ids_exemplaires."""
-    return dict(q=q, lieu_id=("aucun" if lieu == "aucun" else _id(lieu)), etagere_id=_id(etagere),
-                statut=statut or None, classe=classe or None, a_classer=a_classer,
+    return dict(q=q, lieu_id=("aucun" if lieu == "aucun" else _id(lieu)), etagere_id=_id(etagere), rangee_id=_id(rangee),
+                statut=statut or None, classe=classe or None, a_classer=a_classer, support=support or None,
                 ajout_du=du or None, ajout_au=au or None, proprietaire=proprio or None, lecture=lecture or None)
 
 
@@ -346,28 +493,37 @@ def _etagere_du_lieu(conn, lieu: str, etagere: str) -> str:
     return etagere if row and (not lieu or str(row["lieu_id"]) == lieu) else ""
 
 
+def _rangee_de_l_etagere(conn, etagere: str, rangee: str) -> str:
+    if not _id(rangee) or not _id(etagere):
+        return ""
+    row = conn.execute("SELECT etagere_id FROM rangees WHERE id = ?", (_id(rangee),)).fetchone()
+    return rangee if row and str(row["etagere_id"]) == etagere else ""
+
+
 @app.get("/catalogue", response_class=HTMLResponse)
 def catalogue(request: Request, q: str = "", lieu: str = "", etagere: str = "", systeme: str = "",
               classe: str = "", tri: str = "cote", statut: str = "", a_classer: str = "",
               du: str = "", au: str = "", proprio: str = "", lecture: str = "", vue: str = "liste", p: str = "1",
-              conn=Depends(get_conn)):
+              rangee: str = "", support: str = "", conn=Depends(get_conn)):
     systeme = systeme if systeme in SYSTEMES else systeme_courant(conn)
     p = max(_id(p) or 1, 1)
     a_classer = bool(a_classer)
     etagere = _etagere_du_lieu(conn, lieu, etagere)
+    rangee = _rangee_de_l_etagere(conn, etagere, rangee)
     try:
         rows, total = services.rechercher(
             conn, systeme=systeme, tri=tri, limite=PAR_PAGE, decalage=(p - 1) * PAR_PAGE,
-            **_criteres(q, lieu, etagere, classe, statut, a_classer, du, au, proprio, lecture))
+            sans_notes=not _peut(request, "personnel"),
+            **_criteres(q, lieu, etagere, classe, statut, a_classer, du, au, proprio, lecture, rangee, support))
     except Erreur as e:
         return retour("/catalogue", err=str(e))
-    filtres = {k: v for k, v in dict(q=q, lieu=lieu, etagere=etagere, systeme=systeme, classe=classe,
-                                    tri=tri, statut=statut, du=du, au=au, proprio=proprio, lecture=lecture,
-                                    vue=vue).items() if v}
+    filtres = {k: v for k, v in dict(q=q, lieu=lieu, etagere=etagere, rangee=rangee, support=support, systeme=systeme,
+                                    classe=classe, tri=tri, statut=statut, du=du, au=au, proprio=proprio,
+                                    lecture=lecture, vue=vue).items() if v}
     if a_classer:
         filtres["a_classer"] = "1"
     return page(request, conn, "catalogue.html", rows=rows, total=total, p=p,
-                pages=max(1, -(-total // PAR_PAGE)), q=q, lieu=lieu, etagere=etagere, classe=classe,
+                pages=max(1, -(-total // PAR_PAGE)), q=q, lieu=lieu, etagere=etagere, rangee=rangee, support=support, classe=classe,
                 tri=tri, statut=statut, du=du, au=au, vue=vue, a_classer=a_classer, systeme=systeme,
                 proprio=proprio, lecture=lecture, proprietaires=services.proprietaires(conn),
                 filtres=filtres, aujourdhui=date.today().isoformat(),
@@ -386,28 +542,30 @@ async def catalogue_lot(request: Request, conn=Depends(get_conn)):
             ids = services.ids_exemplaires(conn, systeme=form.get("systeme") or None, **_criteres(
                 form.get("q", ""), form.get("lieu", ""), form.get("etagere", ""), form.get("classe", ""),
                 form.get("statut", ""), bool(form.get("a_classer")), form.get("du", ""), form.get("au", ""),
-                form.get("proprio", ""), form.get("lecture", "")))
+                form.get("proprio", ""), form.get("lecture", ""), form.get("rangee", ""), form.get("support", "")))
         else:
             ids = [int(i) for i in form.getlist("ex") if str(i).isdigit()]
         if not ids:
             raise Erreur(tr("aucun livre sélectionné"))
         action = form.get("action")
+        if action != "deplacer" and not _peut(request, "modifier"):
+            raise Erreur(tr("Votre accès ne permet pas cette opération."))
         if action == "deplacer":
             if not form.get("emplacement"):
                 raise Erreur(tr("choisissez où ranger les livres"))
-            lieu_id, _, etagere_id = form.get("emplacement").partition(":")
-            n = services.deplacer_lot(conn, ids, _id(lieu_id), _id(etagere_id))
-            cible = services.nom_emplacement(conn, _id(lieu_id), _id(etagere_id))
-            msg = tr("{n} livre(s) rangé(s) dans « {ou} »", n=n, ou=cible)
+            lieu_id, etagere_id, rangee_id = _emplacement(form.get("emplacement"))
+            n = services.deplacer_lot(conn, ids, lieu_id, etagere_id, rangee_id)
+            cible = services.nom_emplacement(conn, lieu_id, etagere_id, rangee_id)
+            msg = pluriel(n, "{n} livre rangé dans « {ou} »", "{n} livres rangés dans « {ou} »", ou=cible)
             if n < len(ids):
                 msg += tr(" ({n} y étaient déjà)", n=len(ids) - n)
         elif action == "retirer":
             n = services.retirer_lot(conn, ids)
-            msg = tr("{n} exemplaire(s) retiré(s) de la collection", n=n)
+            msg = pluriel(n, "{n} exemplaire retiré de la collection", "{n} exemplaires retirés de la collection")
         elif action == "donner":
             vers = (form.get("vers") or "").strip()
             n = services.donner_lot(conn, ids, vers)
-            msg = tr("{n} livre(s) donné(s) à {qui}", n=n, qui=vers)
+            msg = pluriel(n, "{n} livre donné à {qui}", "{n} livres donnés à {qui}", qui=vers)
         else:
             raise Erreur(tr("choisissez une opération"))
     except Erreur as e:
@@ -433,7 +591,8 @@ def livre(request: Request, ref: str, conn=Depends(get_conn)):
         return retour("/catalogue", err=tr("livre inconnu : {isbn}", isbn=ref))
     opts = {s: options_regles(s) for s in ("clil", "thema", "rayon")}
     return page(request, conn, "livre.html", n=n, lieux=services.lieux(conn), options=opts,
-                proprietaires=services.proprietaires(conn), personnes=services.noms_personnes(conn))
+                proprietaires=services.proprietaires(conn),
+                personnes=services.noms_personnes(conn) if _peut(request, "personnel") else [])
 
 
 def _champs_changes(form, n: dict, cles) -> dict:
@@ -463,7 +622,7 @@ async def livre_modifier(request: Request, ref: str, conn=Depends(get_conn)):
         services.modifier_notice(conn, ref, champs)
     except Erreur as e:
         return retour(f"/livre/{ref}", err=str(e))
-    return retour(f"/livre/{ref}", msg=tr("{n} champ(s) modifié(s)", n=len(champs)) if champs else tr("aucun changement"))
+    return retour(f"/livre/{ref}", msg=pluriel(len(champs), "{n} champ modifié", "{n} champs modifiés") if champs else tr("aucun changement"))
 
 
 @app.post("/livre/{ref}/lecture")
@@ -515,7 +674,7 @@ def livre_relancer(ref: str, conn=Depends(get_conn)):
     n = services.notice(conn, ref)
     if not n:
         return retour("/catalogue", err=tr("livre inconnu"))
-    if not n["isbn13"]:
+    if not n["isbn13"] and not n["ean"] and n["support"] not in services.FILMS:
         return retour(f"/livre/{ref}", err=tr("ce livre n'a pas d'ISBN : aucun catalogue à interroger"))
     with make_client() as client:
         echecs = resolver.fetch_sources(conn, client, n["id"], refresh=True)
@@ -530,9 +689,8 @@ def livre_relancer(ref: str, conn=Depends(get_conn)):
 
 @app.post("/exemplaire/{ex_id}/deplacer")
 def ex_deplacer(ex_id: int, emplacement: str = Form(""), suite: str = Form("/catalogue"), conn=Depends(get_conn)):
-    lieu_id, _, etagere_id = emplacement.partition(":")
     try:
-        services.deplacer_exemplaire(conn, ex_id, _id(lieu_id), _id(etagere_id))
+        services.deplacer_exemplaire(conn, ex_id, *_emplacement(emplacement))
     except Erreur as e:
         return retour(suite, err=str(e))
     return retour(suite, msg=tr("exemplaire déplacé"))
@@ -590,13 +748,13 @@ def ex_supprimer(ex_id: int, conn=Depends(get_conn)):
 
 
 @app.post("/livre/{ref}/exemplaire")
-def livre_exemplaire(ref: str, emplacement: str = Form(""), conn=Depends(get_conn)):
-    lieu_id, _, etagere_id = emplacement.partition(":")
+def livre_exemplaire(request: Request, ref: str, emplacement: str = Form(""), conn=Depends(get_conn)):
+    lieu_id, etagere_id, rangee_id = _emplacement(emplacement)
     try:
         n = services.resume_notice(conn, ref)
         if not n:
             raise Erreur(tr("livre inconnu"))
-        services.ajouter(conn, n["reference"], _id(lieu_id), _id(etagere_id))
+        services.ajouter(conn, n["reference"], lieu_id, etagere_id, rangee_id=rangee_id, par=_bibliothecaire(request, conn))
     except Erreur as e:
         return retour(f"/livre/{ref}", err=str(e))
     return retour(f"/livre/{ref}", msg=tr("exemplaire ajouté"))
@@ -605,7 +763,7 @@ def livre_exemplaire(ref: str, emplacement: str = Form(""), conn=Depends(get_con
 # --- Ajout manuel --------------------------------------------------------------
 
 CHAMPS_MANUEL = ["sous_titre", "editeur", "collection", "annee", "pages", "langue", "langue_originale",
-                 "forme", "public", "sujets", "resume", "couverture_url", "notes"]
+                 "forme", "public", "sujets", "resume", "couverture_url", "notes", "ref_catalogue", "duree"]
 
 
 def _recherche_bnf(titre: str, auteur: str, annee: str) -> list[dict]:
@@ -630,7 +788,7 @@ def manuel_page(request: Request, titre: str = "", auteur: str = "", annee: str 
             resultats = _recherche_bnf(titre, auteur, annee)
         except Erreur as e:
             err = str(e)
-        deja, _ = services.rechercher(conn, " ".join([titre, auteur]), proprietaire="tous", limite=5)
+        deja, _ = services.rechercher(conn, f"{titre} {auteur}", proprietaire="tous", limite=5)
     return page(request, conn, "manuel.html", lieux=services.lieux(conn), resultats=resultats, deja=deja,
                 titre=titre, auteur=auteur, annee=annee, emplacement=emplacement,
                 proprio=proprio or services.proprietaire_local(conn), proprietaires=services.proprietaires(conn),
@@ -638,16 +796,17 @@ def manuel_page(request: Request, titre: str = "", auteur: str = "", annee: str 
 
 
 @app.post("/manuel/bnf")
-def manuel_bnf(ark: str = Form(...), titre: str = Form(""), auteur: str = Form(""), annee: str = Form(""),
-               emplacement: str = Form(""), proprio: str = Form(""), conn=Depends(get_conn)):
-    lieu_id, _, etagere_id = emplacement.partition(":")
+def manuel_bnf(request: Request, ark: str = Form(...), titre: str = Form(""), auteur: str = Form(""),
+               annee: str = Form(""), emplacement: str = Form(""), proprio: str = Form(""), conn=Depends(get_conn)):
+    lieu_id, etagere_id, rangee_id = _emplacement(emplacement)
     suite = "/manuel?" + urlencode(dict(titre=titre, auteur=auteur, annee=annee, chercher=1,
                                         emplacement=emplacement, proprio=proprio))
     try:
         choix = next((r for r in _recherche_bnf(titre, auteur, annee) if r["ark"] == ark), None)
         if not choix:
             raise Erreur(tr("cette notice n'est plus proposée par la BnF : saisissez le livre à la main"))
-        res = services.ajouter_depuis_bnf(conn, choix, _id(lieu_id), _id(etagere_id), proprio or None)
+        res = services.ajouter_depuis_bnf(conn, choix, lieu_id, etagere_id, proprio or None, rangee_id=rangee_id,
+                                          par=_bibliothecaire(request, conn))
     except Erreur as e:
         return retour(suite, err=str(e))
     if res.get("recherche") and worker:
@@ -660,11 +819,12 @@ async def manuel_post(request: Request, conn=Depends(get_conn)):
     form = await request.form()
     valeurs = {k: (form.get(k) or "").strip() for k in ["titre", "auteurs", "isbn", *CHAMPS_MANUEL]}
     emplacement, proprio = form.get("emplacement") or "", (form.get("proprio") or "").strip()
-    lieu_id, _, etagere_id = emplacement.partition(":")
+    lieu_id, etagere_id, rangee_id = _emplacement(emplacement)
     try:
         res = services.creer_notice_manuelle(
             conn, valeurs["titre"], valeurs["auteurs"], isbn=valeurs["isbn"] or None,
-            lieu_id=_id(lieu_id), etagere_id=_id(etagere_id), proprietaire=proprio or None,
+            lieu_id=lieu_id, etagere_id=etagere_id, rangee_id=rangee_id, proprietaire=proprio or None,
+            support=form.get("support") or "livre", par=_bibliothecaire(request, conn),
             **{k: valeurs[k] for k in CHAMPS_MANUEL})
     except Erreur as e:
         # On réaffiche le formulaire tel quel : rien de ce qui a été tapé n'est perdu
@@ -701,11 +861,12 @@ def lieu_ajouter(nom: str = Form(...), description: str = Form(""), conn=Depends
 @app.post("/lieux/{lieu_id}/etagere")
 def lieu_etagere(lieu_id: int, nom: str = Form(...), conn=Depends(get_conn)):
     try:
-        for n in [x.strip() for x in nom.split(",") if x.strip()]:
+        noms = [x.strip() for x in nom.split(",") if x.strip()]
+        for n in noms:
             services.creer_etagere(conn, lieu_id, n)
     except Erreur as e:
         return retour("/lieux", err=str(e))
-    return retour("/lieux", msg=tr("étagère(s) ajoutée(s)"))
+    return retour("/lieux", msg=pluriel(len(noms), "étagère ajoutée", "étagères ajoutées"))
 
 
 @app.post("/lieux/{lieu_id}/renommer")
@@ -720,7 +881,48 @@ def lieu_renommer(lieu_id: int, nom: str = Form(...), description: str = Form(""
 @app.post("/lieux/{lieu_id}/supprimer")
 def lieu_supprimer(lieu_id: int, conn=Depends(get_conn)):
     n = services.supprimer_lieu(conn, lieu_id)
-    return retour("/lieux", msg=tr("lieu supprimé ; {n} livre(s) désormais non localisé(s)", n=n))
+    return retour("/lieux", msg=pluriel(n, "lieu supprimé ; {n} livre désormais non localisé", "lieu supprimé ; {n} livres désormais non localisés"))
+
+
+@app.get("/lieux/etiquettes", response_class=HTMLResponse)
+def lieux_etiquettes(request: Request, lieu: str = "", conn=Depends(get_conn)):
+    """Page à imprimer : un code-barres par lieu, étagère et rangée."""
+    choisis = [l for l in services.lieux(conn) if not lieu or str(l["id"]) == lieu]
+    planche = []
+    for l in choisis:
+        planche.append({"nom": l["nom"], "svg": etiquettes.svg(etiquettes.code_de("lieux", l["etiquette"]))})
+        for e in l["etageres"]:
+            planche.append({"nom": f"{l['nom']} › {e['nom']}", "svg": etiquettes.svg(etiquettes.code_de("etageres", e["etiquette"]))})
+            for r in e["rangees"]:
+                planche.append({"nom": f"{l['nom']} › {e['nom']} › {r['nom']}",
+                                "svg": etiquettes.svg(etiquettes.code_de("rangees", r["etiquette"]))})
+    return page(request, conn, "etiquettes.html", planche=planche, lieux=services.lieux(conn), lieu=lieu)
+
+
+@app.post("/etageres/{etagere_id}/rangee")
+def etagere_rangee(etagere_id: int, nom: str = Form(...), conn=Depends(get_conn)):
+    try:
+        noms = [x.strip() for x in nom.split(",") if x.strip()]
+        for n in noms:
+            services.creer_rangee(conn, etagere_id, n)
+    except Erreur as e:
+        return retour("/lieux", err=str(e))
+    return retour("/lieux", msg=pluriel(len(noms), "rangée ajoutée", "rangées ajoutées"))
+
+
+@app.post("/rangees/{rangee_id}/renommer")
+def rangee_renommer(rangee_id: int, nom: str = Form(...), conn=Depends(get_conn)):
+    try:
+        services.renommer_rangee(conn, rangee_id, nom)
+    except Erreur as e:
+        return retour("/lieux", err=str(e))
+    return retour("/lieux", msg=tr("rangée renommée"))
+
+
+@app.post("/rangees/{rangee_id}/supprimer")
+def rangee_supprimer(rangee_id: int, conn=Depends(get_conn)):
+    services.supprimer_rangee(conn, rangee_id)
+    return retour("/lieux", msg=tr("rangée supprimée"))
 
 
 @app.post("/etageres/{etagere_id}/renommer")
@@ -760,15 +962,16 @@ def inventaire_page(request: Request, inv_id: int, conn=Depends(get_conn)):
 
 
 @app.post("/inventaire/{inv_id}/cloturer")
-def inventaire_cloturer(inv_id: int, ranger: str = Form(""), ajouter: str = Form(""), conn=Depends(get_conn)):
+def inventaire_cloturer(request: Request, inv_id: int, ranger: str = Form(""), ajouter: str = Form(""), conn=Depends(get_conn)):
     try:
-        res = services.cloturer_inventaire(conn, inv_id, ranger_ailleurs=bool(ranger), ajouter_inconnus=bool(ajouter))
+        res = services.cloturer_inventaire(conn, inv_id, ranger_ailleurs=bool(ranger), ajouter_inconnus=bool(ajouter),
+                                           par=_bibliothecaire(request, conn))
     except Erreur as e:
         return retour(f"/inventaire/{inv_id}", err=str(e))
     if res["ajoutes"] and worker:
         worker.wake()
     return retour(f"/inventaire/{inv_id}",
-                  msg=tr("inventaire clôturé : {d} remis en place, {a} ajouté(s)", d=res["deplaces"], a=res["ajoutes"]))
+                  msg=tr("inventaire clôturé. Remis en place : {d}. Ajoutés : {a}.", d=res["deplaces"], a=res["ajoutes"]))
 
 
 # --- À traiter, prêts, stats, réglages, exports --------------------------------
@@ -783,7 +986,7 @@ def a_traiter_relancer(conn=Depends(get_conn)):
     n = services.relancer(conn)
     if worker:
         worker.wake()
-    return retour("/a-traiter", msg=tr("{n} livre(s) remis en recherche", n=n))
+    return retour("/a-traiter", msg=pluriel(n, "{n} livre remis en recherche", "{n} livres remis en recherche"))
 
 
 @app.get("/prets", response_class=HTMLResponse)
@@ -799,15 +1002,13 @@ def stats_page(request: Request, conn=Depends(get_conn)):
 
 @app.get("/reglages", response_class=HTMLResponse)
 def reglages(request: Request, conn=Depends(get_conn)):
-    key = db.get_meta(conn, "google_api_key")
-    return page(request, conn, "reglages.html", google=bool(key), db_path=db.db_path(),
+    return page(request, conn, "reglages.html", db_path=db.db_path(),
                 nb_raw=conn.execute("SELECT count(*) FROM raw_responses").fetchone()[0],
                 proprietaire=services.proprietaire_local(conn), lieux=services.lieux(conn))
 
 
 @app.post("/reglages")
-def reglages_post(systeme: str = Form(...), google_api_key: str = Form(""), effacer_google: str = Form(""),
-                  langue: str = Form(""), proprietaire: str = Form(""), conn=Depends(get_conn)):
+def reglages_post(systeme: str = Form(...), langue: str = Form(""), proprietaire: str = Form(""), conn=Depends(get_conn)):
     try:
         services.choisir_systeme(conn, systeme)
         if proprietaire.strip():
@@ -817,10 +1018,6 @@ def reglages_post(systeme: str = Form(...), google_api_key: str = Form(""), effa
     if langue in i18n.LANGUES:
         db.set_meta(conn, "langue", langue)
         i18n.utiliser(langue)
-    if effacer_google:
-        db.set_meta(conn, "google_api_key", None)
-    elif google_api_key.strip():
-        db.set_meta(conn, "google_api_key", google_api_key.strip())
     return retour("/reglages", msg=tr("réglages enregistrés"))
 
 
@@ -836,12 +1033,13 @@ def reglages_reclasser(conn=Depends(get_conn)):
 def manifest(request: Request, conn=Depends(get_conn)):
     """Pour « Ajouter à l'écran d'accueil » : l'appli s'ouvre alors sans barres, en plein écran.
 
-    Sur le téléphone, l'adresse de départ porte la clé : une appli d'écran d'accueil iOS a
-    ses propres cookies et doit pouvoir se reconnecter seule.
+    Un appareil venu par une clé la garde dans l'adresse de départ : une appli d'écran d'accueil iOS a
+    ses propres cookies et doit pouvoir se reconnecter seule. Un code, lui, n'y figure jamais :
+    on le tape une fois dans l'icône, qui garde ensuite sa session.
     """
     depart = "/scan?camera=1"
-    if request.client and request.client.host not in LOCAL:
-        depart += "&cle=" + (telephone.cle_admin(conn) if _admin(request) else telephone.cle(conn))
+    if getattr(request.state, "cle", None):
+        depart += "&cle=" + request.state.cle
     return JSONResponse({
         "name": "Bibliothèque", "short_name": "Bibliothèque", "id": "/scan",
         "start_url": depart, "scope": "/", "display": "standalone", "orientation": "portrait",
@@ -875,18 +1073,69 @@ def telephone_nouvelle_cle(request: Request, conn=Depends(get_conn)):
 
 
 @app.get("/export.{fmt}")
-def exporter(fmt: str, systeme: str = "", conn=Depends(get_conn)):
+def exporter(fmt: str, systeme: str = "", statut: bool = False, avec_lieux: bool = False, conn=Depends(get_conn)):
     systeme = systeme if systeme in SYSTEMES else None
     nom = f"bibliotheque-{date.today()}.{fmt}"
+    media = "text/csv; charset=utf-8"
     if fmt == "xlsx":
         data = export.xlsx_bytes(conn, systeme=systeme)
         media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     elif fmt == "csv":
         data = export.csv_bytes(conn, systeme=systeme)
-        media = "text/csv; charset=utf-8"
+    elif fmt == "goodreads":
+        data = export.goodreads_csv(conn, avec_statut=statut, avec_lieux=avec_lieux)
+        nom = f"bibliotheque-{date.today()}-goodreads.csv"
+    elif fmt == "babelio":
+        data = export.babelio_csv(conn, avec_statut=statut)
+        nom = f"bibliotheque-{date.today()}-babelio.csv"
     else:
         return Response(status_code=404)
     return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{nom}"'})
+
+
+# --- Applis de lecture : fichiers Goodreads et Babelio, import du CSV de Babelio ----
+
+TAILLE_MAX_IMPORT = 5 * 1024 * 1024
+
+
+@app.get("/echanges", response_class=HTMLResponse)
+def echanges(request: Request, conn=Depends(get_conn)):
+    return page(request, conn, "echanges.html", bilan=export.bilan_applis(conn), bilan_statut=export.bilan_applis(conn, avec_statut=True))
+
+
+@app.post("/echanges/babelio", response_class=HTMLResponse)
+async def echanges_babelio(request: Request, conn=Depends(get_conn)):
+    """Aperçu : rien n'est écrit, et le fichier repart dans la page pour être appliqué tel quel."""
+    form = await request.form()
+    fichier = form.get("fichier")
+    contenu = await fichier.read(TAILLE_MAX_IMPORT + 1) if isinstance(fichier, UploadFile) else b""
+    if len(contenu) > TAILLE_MAX_IMPORT:
+        return retour("/echanges", err=tr("fichier trop gros : {taille} au plus", taille="5 Mo"))
+    ecraser = bool(form.get("ecraser"))
+    try:
+        apercu = babelio.importer(conn, contenu, ecraser=ecraser, simulation=True)
+    except Erreur as e:
+        return retour("/echanges", err=str(e))
+    return page(request, conn, "echanges.html", bilan=export.bilan_applis(conn), bilan_statut=export.bilan_applis(conn, avec_statut=True),
+                apercu=apercu, ecraser=ecraser,
+                contenu=base64.b64encode(contenu).decode())
+
+
+@app.post("/echanges/babelio/appliquer")
+async def echanges_babelio_appliquer(request: Request, conn=Depends(get_conn)):
+    form = await request.form(max_part_size=2 * TAILLE_MAX_IMPORT)     # le fichier revient en base64 : plus de 1 Mo possible
+    try:
+        contenu = base64.b64decode(form.get("contenu", ""), validate=True)
+        babelio.lire_csv(contenu)                   # avant la sauvegarde : un fichier illisible ne change rien
+    except (binascii.Error, TypeError, ValueError):
+        return retour("/echanges", err=tr("le fichier est vide"))
+    except Erreur as e:
+        return retour("/echanges", err=str(e))
+    partage.sauvegarder(conn, "avant-babelio")
+    rapport = babelio.importer(conn, contenu, ecraser=bool(form.get("ecraser")))
+    auth.journaliser(conn, "import_babelio", _qui(request), f"{rapport['statuts']} / {rapport['notes']}", _ip(request))
+    return retour("/echanges", msg=tr("Babelio importé. Statuts : {statuts}. Notes : {notes}.",
+                                      statuts=rapport["statuts"], notes=rapport["notes"]))
 
 
 @app.get("/partage.db")
@@ -926,3 +1175,8 @@ def installation_ca(fichier: bool = False):
     media = "application/octet-stream" if fichier else "application/x-x509-ca-cert"
     return Response(certs.ca_der(), media_type=media,
                     headers={"Content-Disposition": 'attachment; filename="bibliotheque-ca.crt"'})
+
+
+from . import admin  # noqa: E402  (les routes de l'administration utilisent ce module)
+
+app.include_router(admin.router)

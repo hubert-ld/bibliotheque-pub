@@ -39,6 +39,12 @@ def tr(texte: str, **valeurs) -> str:
     return texte.format(**valeurs) if valeurs else texte
 
 
+def pluriel(n: int, un: str, plusieurs: str, **valeurs) -> str:
+    """Accorde selon `n` : en français 0 et 1 sont au singulier, en anglais 1 seulement."""
+    singulier = n <= 1 if _langue.get() == "fr" else n == 1
+    return tr(un if singulier else plusieurs, n=n, **valeurs)
+
+
 @cache
 def cles_js() -> tuple[str, ...]:
     """Textes passés à tr("…") dans les scripts de la page."""

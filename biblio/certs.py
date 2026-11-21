@@ -9,15 +9,18 @@ Les clés privées restent hors du dossier du projet, qui peut être synchronis�
 """
 
 import ipaddress
+import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+from . import telephone
 
 def dossier_donnees() -> Path:
     """Dossier des données propres à cet ordinateur (hors du dossier du projet), selon le système."""
@@ -28,18 +31,25 @@ def dossier_donnees() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "biblio"
 
 
+log = logging.getLogger("biblio.certs")
 DOSSIER = Path(os.environ.get("BIBLIO_CERTS") or dossier_donnees() / "certs")
 NOM_CA = "Bibliothèque perso — autorité locale"
 DUREE_CA = timedelta(days=3650)
 DUREE_SERVEUR = timedelta(days=397)        # iOS refuse les certificats valables plus de 398 jours
 MARGE = timedelta(days=30)                 # renouvelé un mois avant expiration
-# Une autorité installée sur un téléphone serait crue pour tous les sites : celle-ci ne vaut que
-# pour le réseau local, même si sa clé privée fuitait. Une autorité déjà installée n'est pas remplacée.
-RESEAU_LOCAL = x509.NameConstraints(
-    permitted_subtrees=[x509.DNSName("localhost"), x509.DNSName("local"),
-                        *(x509.IPAddress(ipaddress.ip_network(r)) for r in
-                          ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"))],
-    excluded_subtrees=None)
+ADRESSES_PRIVEES = ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")
+
+
+def _limites() -> x509.NameConstraints:
+    """Une autorité installée sur un téléphone serait crue pour tous les sites : celle-ci ne vaut que
+    pour ce serveur et les adresses privées, même si sa clé privée fuitait. Une autorité déjà installée
+    n'est pas remplacée. Sans adresses dans la liste, les adresses IP ne seraient pas limitées du tout.
+    """
+    noms = dict.fromkeys(("localhost", telephone.nom_local()))
+    return x509.NameConstraints(
+        permitted_subtrees=[*(x509.DNSName(n) for n in noms),
+                            *(x509.IPAddress(ipaddress.ip_network(r)) for r in ADRESSES_PRIVEES)],
+        excluded_subtrees=None)
 
 
 def _chemins():
@@ -56,7 +66,7 @@ def _ecrire_cle(path: Path, cle) -> None:
 
 
 def _maintenant():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def ca() -> tuple[x509.Certificate, rsa.RSAPrivateKey]:
@@ -83,7 +93,7 @@ def ca() -> tuple[x509.Certificate, rsa.RSAPrivateKey]:
                                      data_encipherment=False, key_agreement=False,
                                      encipher_only=False, decipher_only=False), critical=True)
         .add_extension(x509.SubjectKeyIdentifier.from_public_key(cle.public_key()), critical=False)
-        .add_extension(RESEAU_LOCAL, critical=True)
+        .add_extension(_limites(), critical=True)
         .sign(cle, hashes.SHA256())
     )
     _ecrire_cle(p["ca_cle"], cle)
@@ -115,9 +125,44 @@ def _couvre(cert: x509.Certificate, noms: list[str], ips: list[str]) -> bool:
     return set(noms) <= dns and set(ips) <= adresses
 
 
+def _nom_permis(cert: x509.Certificate, nom: str) -> bool:
+    """Cette autorité peut-elle signer ce nom ? Une autorité limitée ne signe que le nom du serveur qui l'a créée."""
+    try:
+        limites = cert.extensions.get_extension_for_class(x509.NameConstraints).value
+    except x509.ExtensionNotFound:
+        return True
+    permis = [s.value for s in limites.permitted_subtrees or [] if isinstance(s, x509.DNSName)]
+    return any(nom == p or nom.endswith("." + p) for p in permis)
+
+
+def etat() -> dict:
+    """Échéances et empreinte, pour l'administration ; en simple lecture, ne crée jamais rien."""
+    p = _chemins()
+    out = {"ca_expire": None, "empreinte": None, "serveur_expire": None, "noms": [], "ips": []}
+    try:
+        cert = x509.load_pem_x509_certificate(p["ca"].read_bytes())
+        h = cert.fingerprint(hashes.SHA256()).hex().upper()
+        out.update(ca_expire=cert.not_valid_after_utc.date().isoformat(),
+                   empreinte=":".join(h[i:i + 2] for i in range(0, len(h), 2)))
+        cert = x509.load_pem_x509_certificate(p["serveur"].read_bytes())
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        out.update(serveur_expire=cert.not_valid_after_utc.date().isoformat(), noms=san.get_values_for_type(x509.DNSName),
+                   ips=[str(a) for a in san.get_values_for_type(x509.IPAddress)])
+    except (OSError, ValueError, x509.ExtensionNotFound):
+        pass
+    return out
+
+
 def serveur(noms: list[str], ips: list[str]) -> tuple[Path, Path]:
-    """Certificat du serveur couvrant ces noms et IP ; régénéré seulement si nécessaire."""
+    """Certificat du serveur couvrant ces noms et IP ; régénéré seulement si nécessaire.
+
+    Un nom que l'autorité ne peut pas signer est écarté : sinon tout le certificat serait refusé.
+    L'autorité elle-même n'est jamais remplacée pour autant, les téléphones la connaissent.
+    """
     ca_cert, ca_cle = ca()
+    for nom in [n for n in noms if not _nom_permis(ca_cert, n)]:
+        log.warning("le nom %s n'est pas couvert par cette autorité locale : utilisez l'adresse IP", nom)
+    noms = [n for n in noms if _nom_permis(ca_cert, n)]
     p = _chemins()
     if p["serveur"].exists() and p["serveur_cle"].exists():
         cert = x509.load_pem_x509_certificate(p["serveur"].read_bytes())

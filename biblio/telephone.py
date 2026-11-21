@@ -8,7 +8,7 @@ import sys
 
 from . import db
 
-# Changeables (ex. sur un Raspberry Pi où un autre service occupe déjà 8080 et 8443) :
+# Changeables (ex. sur un serveur où un autre service occupe déjà 8080 et 8443) :
 # variables BIBLIO_PORT_HTTPS / BIBLIO_PORT_INSTALLATION, ou `biblio serve --phone-port/--install-port`.
 PORT_HTTPS = int(os.environ.get("BIBLIO_PORT_HTTPS") or 8443)
 PORT_INSTALLATION = int(os.environ.get("BIBLIO_PORT_INSTALLATION") or 8080)
@@ -29,14 +29,17 @@ def ip_locale() -> str:
 
 
 def nom_local() -> str:
-    """Nom de l'ordinateur sur le réseau local (ex. mon-ordinateur.local).
+    """Nom de l'ordinateur sur le réseau local (ex. mon-ordinateur.local, ou mon-serveur).
 
-    macOS : nom Bonjour ; Linux (Avahi) et Windows 10+ répondent aussi au nom de la machine + .local.
+    `BIBLIO_NOM` l'impose : tous les réseaux ne résolvent pas les noms en .local (deploy/serveur.conf).
+    Sinon, macOS : nom Bonjour ; Linux (Avahi) et Windows 10+ répondent aussi au nom de la machine + .local.
     """
+    if os.environ.get("BIBLIO_NOM"):
+        return os.environ["BIBLIO_NOM"]
     nom = ""
     if sys.platform == "darwin":
         try:
-            nom = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True,
+            nom = subprocess.run(["scutil", "--get", "LocalHostName"], check=False, capture_output=True,
                                  text=True, timeout=3).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             pass
@@ -61,9 +64,10 @@ def nouvelle_cle(conn) -> str:
 # Deux clés, deux rôles, pour les appareils du réseau (l'ordinateur lui-même, en localhost, est admin) :
 #   « telephone » : la clé des QR codes. Scanner, consulter, ranger, prêter… mais pas les réglages.
 #   « admin »     : pour son propre ordinateur quand la bibliothèque tourne sur un serveur sans écran
-#                   (Raspberry Pi) : tout, réglages et page Téléphone compris. Créée à la demande
+#                   (petit serveur domestique) : tout, réglages et page Téléphone compris. Créée à la demande
 #                   (`biblio phone --admin`), jamais affichée en QR code.
 ROLES = (("admin", "cle_admin"), ("telephone", "cle_telephone"))
+CLE_QR_COUPEE = "cle_telephone_coupee"     # l'admin peut couper la clé des QR codes, une fois les comptes créés
 
 
 def cle_admin(conn) -> str:
@@ -82,10 +86,20 @@ def role(conn, proposee: str | None) -> str | None:
     if not proposee:
         return None
     for nom, meta in ROLES:
+        if nom == "telephone" and qr_coupe(conn):
+            continue
         attendue = db.get_meta(conn, meta)
         if attendue and secrets.compare_digest(proposee, attendue):
             return nom
     return None
+
+
+def qr_coupe(conn) -> bool:
+    return db.get_meta(conn, CLE_QR_COUPEE) == "1"
+
+
+def couper_qr(conn, coupe: bool) -> None:
+    db.set_meta(conn, CLE_QR_COUPEE, "1" if coupe else None)
 
 
 def cle_valide(conn, proposee: str | None) -> bool:
@@ -106,6 +120,6 @@ def urls(conn, ip: str | None = None) -> dict:
 
 
 def url_admin(conn) -> str:
-    """Par le nom (.local) plutôt que l'IP : il survit à un changement d'adresse, et c'est l'adresse
+    """Par le nom plutôt que l'IP : il survit à un changement d'adresse, et c'est l'adresse
     à mettre en favori (le cookie de la clé est propre à chaque adresse)."""
     return f"https://{etat['nom'] or nom_local()}:{PORT_HTTPS}/catalogue?cle={cle_admin(conn)}"

@@ -5,7 +5,7 @@ import re
 from . import norm, rules
 from ..i18n import tr
 
-CONDITIONS = {"bd", "fiction", "public", "forme", "dewey", "cadre", "langue", "langue_non", "mots"}
+CONDITIONS = {"bd", "fiction", "public", "forme", "dewey", "cadre", "langue", "langue_non", "mots", "support"}
 RESULTATS = {"abbr", "libelle", "code", "prefixe"}
 FICHIERS = {"clil": "clil", "thema": "thema", "rayon": "rayons"}
 
@@ -36,7 +36,7 @@ def correspond(regle: dict, f: dict) -> bool:
         if cle in ("bd", "fiction"):
             if bool(f[cle]) != bool(val):
                 return False
-        elif cle in ("public", "forme", "langue"):
+        elif cle in ("public", "forme", "langue", "support"):
             if f[cle] not in val:
                 return False
         elif cle == "langue_non":

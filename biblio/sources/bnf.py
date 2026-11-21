@@ -72,9 +72,10 @@ def fetch(client: httpx.Client, isbn13: str) -> Fetched:
 
 def _fields(record: ET.Element) -> list[tuple[str, list[tuple[str, str]]]]:
     out = []
-    for df in record.findall("mxc:datafield", NS):
+    # Le Sudoc donne le même UNIMARC, sans espace de noms
+    for df in record.findall("mxc:datafield", NS) or record.findall("datafield"):
         subs = [(sf.get("code"), NON_SORT.sub("", sf.text or "").strip())
-                for sf in df.findall("mxc:subfield", NS)]
+                for sf in df.findall("mxc:subfield", NS) or df.findall("subfield")]
         out.append((df.get("tag"), subs))
     return out
 

@@ -20,12 +20,14 @@ NS = {"m": "http://www.loc.gov/MARC21/slim"}
 
 
 def fetch(client: httpx.Client, isbn13: str) -> Fetched:
-    params = {
-        "operation": "searchRetrieve", "version": "1.1", "query": f"bath.isbn={isbn13}",
-        "maximumRecords": "1", "recordSchema": "marcxml",
-    }
+    return interroger_sru(client, limiter, URL, {"version": "1.1", "query": f"bath.isbn={isbn13}", "recordSchema": "marcxml"})
+
+
+def interroger_sru(client: httpx.Client, limiteur: RateLimiter, url: str, params: dict) -> Fetched:
+    """Une notice MARC21 par SRU ; même chose pour K10plus et la DNB."""
+    params = {"operation": "searchRetrieve", "maximumRecords": "1", **params}
     try:
-        r = get(client, limiter, URL, params)
+        r = get(client, limiteur, url, params)
     except httpx.HTTPError as exc:
         return Fetched("erreur", str(exc))
     if r.status_code != 200:

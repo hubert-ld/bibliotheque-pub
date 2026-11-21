@@ -17,9 +17,10 @@ from rich.panel import Panel
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from . import covers as covers_store, db, i18n, resolver, sauvegarde, services
+from . import auth, codes, covers as covers_store, db, i18n, resolver, sante, sauvegarde, services
 from .classify import SYSTEMES, reclasser_tout, systeme_courant
 from .i18n import tr
+from .isbn import IsbnError
 from .services import Erreur
 from .sources import make_client
 from .worker import Worker, prochaine
@@ -30,6 +31,8 @@ app = typer.Typer(help="Personal library: barcode scanning, places, classificati
                   no_args_is_help=True, rich_markup_mode="rich")
 place_app = typer.Typer(help="Manage places (bookcases, rooms) and their shelves.", no_args_is_help=True)
 app.add_typer(place_app, name="place")
+user_app = typer.Typer(help="Accounts of the people using the library (the admin page does the same).", no_args_is_help=True)
+app.add_typer(user_app, name="user")
 console = Console()
 
 COLOURS = {"ajoute": "green", "doublon": "yellow", "rebond": "dim", "deplace": "cyan",
@@ -75,8 +78,9 @@ def _book_line(n: dict | None) -> str:
 
 
 def _place(conn, spec: str | None, create: bool = False):
+    """(place, shelf, row), from Place, Place/Shelf or Place/Shelf/Row."""
     if not spec:
-        return None, None
+        return None, None, None
     try:
         return services.emplacement(conn, spec, creer=create)
     except Erreur as e:
@@ -94,8 +98,11 @@ def place_list():
         console.print("No places yet. Create one: [bold]biblio place add \"Living room\"[/bold]")
         return
     table = Table("Place", "Shelves", "Books")
+    def shelf(e):
+        rows = ", ".join(f"{esc(r['nom'])} {r['nb']}" for r in e["rangees"])
+        return f"{esc(e['nom'])} ({e['nb']}{': ' + rows if rows else ''})"
     for p in places:
-        shelves = ", ".join(f"{esc(e['nom'])} ({e['nb']})" for e in p["etageres"]) or "—"
+        shelves = ", ".join(shelf(e) for e in p["etageres"]) or "—"
         table.add_row(esc(p["nom"]), shelves, str(p["nb"]))
     console.print(table)
 
@@ -114,7 +121,7 @@ def place_add(name: str, description: str = typer.Option(None, "--description", 
 def place_shelf(place: str, names: list[str]):
     """Add one or more shelves to a place: biblio place shelf "Living room" S1 S2."""
     conn = _conn()
-    place_id, _ = _place(conn, place)
+    place_id, _, _ = _place(conn, place)
     try:
         for name in names:
             services.creer_etagere(conn, place_id, name)
@@ -123,13 +130,30 @@ def place_shelf(place: str, names: list[str]):
         _fail(str(e))
 
 
+@place_app.command("row")
+def place_row(shelf: str, names: list[str]):
+    """Add one or more rows to a shelf: biblio place row "Living room/S1" Front Back."""
+    conn = _conn()
+    _, shelf_id, _ = _place(conn, shelf)
+    if not shelf_id:
+        _fail("name a shelf: Place/Shelf")
+    try:
+        for name in names:
+            services.creer_rangee(conn, shelf_id, name)
+    except Erreur as e:
+        _fail(str(e))
+    console.print(f"[green]✓[/green] {len(names)} row(s) added to “{esc(shelf)}”")
+
+
 @place_app.command("rename")
 def place_rename(old: str, new: str):
-    """Rename a place, or a shelf using the Place/Shelf form."""
+    """Rename a place, or a shelf or row using the Place/Shelf/Row form."""
     conn = _conn()
-    place_id, shelf_id = _place(conn, old)
+    place_id, shelf_id, row_id = _place(conn, old)
     try:
-        if shelf_id:
+        if row_id:
+            services.renommer_rangee(conn, row_id, new)
+        elif shelf_id:
             services.renommer_etagere(conn, shelf_id, new)
         else:
             services.renommer_lieu(conn, place_id, new)
@@ -140,12 +164,15 @@ def place_rename(old: str, new: str):
 
 @place_app.command("remove")
 def place_remove(spec: str, yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation")):
-    """Remove a place or a shelf (its books become “unshelved”)."""
+    """Remove a place or a shelf (its books become “unshelved”), or a row (they stay on the shelf)."""
     conn = _conn()
-    place_id, shelf_id = _place(conn, spec)
-    if not yes and not typer.confirm(f"Remove “{spec}”? Its books will become unshelved"):
+    place_id, shelf_id, row_id = _place(conn, spec)
+    if not yes and not typer.confirm(f"Remove “{spec}”? Its books will stay on the shelf" if row_id
+                                     else f"Remove “{spec}”? Its books will become unshelved"):
         raise typer.Abort()
-    if shelf_id:
+    if row_id:
+        services.supprimer_rangee(conn, row_id)
+    elif shelf_id:
         services.supprimer_etagere(conn, shelf_id)
     else:
         services.supprimer_lieu(conn, place_id)
@@ -177,7 +204,7 @@ def scan(
     if mode not in MODES:
         _fail("modes: add, move, where")
     conn = _conn()
-    place_id, shelf_id = _place(conn, place, create=True)
+    place_id, shelf_id, row_id = _place(conn, place, create=True)
     worker = Worker(on_done=_resolution_callback(db.db_path()))
     worker.start()
     console.print(Panel.fit(
@@ -187,7 +214,7 @@ def scan(
         title="Scanning station"))
     last_copy = None
     while True:
-        where = services.nom_emplacement(conn, place_id, shelf_id)
+        where = services.nom_emplacement(conn, place_id, shelf_id, row_id)
         try:
             code = console.input(f"[bold]{mode}[/bold] [cyan]{esc(where)}[/cyan] › ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -198,7 +225,7 @@ def scan(
             break
         if code.startswith(":place"):
             try:
-                place_id, shelf_id = services.emplacement(conn, code[6:].strip(), creer=True)
+                place_id, shelf_id, row_id = services.emplacement(conn, code[6:].strip(), creer=True)
             except Erreur as e:
                 console.print(f"[red]✗ {esc(str(e))}[/red]")
             continue
@@ -216,14 +243,20 @@ def scan(
                 last_copy = None
             continue
         try:
+            label = _label(code)
+            if label:                                        # printed label: chooses the location
+                found = services.lire_etiquette(conn, label)
+                place_id, shelf_id, row_id = found["lieu_id"], found["etagere_id"], found["rangee_id"]
+                continue
             if MODES[mode] == "ajout":
-                res = services.ajouter(conn, code, place_id, shelf_id)
+                res = services.ajouter(conn, code, place_id, shelf_id, rangee_id=row_id)
                 last_copy = res.get("exemplaire_id") or last_copy
                 worker.wake()
             elif MODES[mode] == "deplacement":
-                res = services.deplacer(conn, code, place_id, shelf_id)
+                res = services.deplacer(conn, code, place_id, shelf_id, row_id)
             else:
                 res = services.localiser(conn, code)
+            services.noter_scan(conn, res, services.bibliothecaire_local(conn), MODES[mode])
         except Erreur as e:
             console.print(f"[red]✗ {esc(str(e))}[/red]\a")
             continue
@@ -238,6 +271,15 @@ def scan(
                       "They will be completed by [bold]biblio resolve[/bold] or [bold]biblio serve[/bold].")
 
 
+def _label(code: str) -> str | None:
+    """The code of a printed location label, None for anything else."""
+    try:
+        genre, value = codes.analyser(code)
+    except IsbnError:
+        return None
+    return value if genre == "etiquette" else None
+
+
 @app.command("import")
 def import_codes(
     file: Path,
@@ -248,7 +290,7 @@ def import_codes(
     if not file.is_file():
         _fail(f"file not found: {file}")
     conn = _conn()
-    place_id, shelf_id = _place(conn, place, create=True)
+    place_id, shelf_id, row_id = _place(conn, place, create=True)
     ok = errors = duplicates = 0
     for line in file.read_text(encoding="utf-8", errors="replace").splitlines():
         code = line.strip().split(";")[0].split(",")[0].strip()
@@ -256,7 +298,8 @@ def import_codes(
             continue
         try:
             # Chaque ligne compte : une mémoire de douchette ne dit pas si c'est une double lecture
-            res = services.ajouter(conn, code, place_id, shelf_id, filtrer_rebond=False)
+            res = services.ajouter(conn, code, place_id, shelf_id, filtrer_rebond=False, rangee_id=row_id)
+            services.noter_scan(conn, res, services.bibliothecaire_local(conn), "ajout")
             if res["statut"] == "doublon":
                 duplicates += 1
                 console.print(f"[yellow]? {res['code']}: one more copy (no. {res['exemplaire_id']}); "
@@ -447,9 +490,9 @@ def search(
     if reading and reading not in READING:
         _fail(f"unknown reading status: {reading} (choices: {', '.join(READING)})")
     conn = _conn()
-    place_id, shelf_id = _place(conn, place)
+    place_id, shelf_id, row_id = _place(conn, place)
     try:
-        rows, total = services.rechercher(conn, query, lieu_id=place_id, etagere_id=shelf_id, systeme=system,
+        rows, total = services.rechercher(conn, query, lieu_id=place_id, etagere_id=shelf_id, rangee_id=row_id, systeme=system,
                                           ajout_du=since, ajout_au=until, tri=SORTS[sort], limite=limit,
                                           proprietaire="tous" if owner == "all" else owner,
                                           lecture=READING.get(reading))
@@ -630,9 +673,9 @@ def classify(
 def move(code: str, to: str = typer.Argument(..., help="Place or Place/Shelf")):
     """Move a book to another place or shelf."""
     conn = _conn()
-    place_id, shelf_id = _place(conn, to, create=True)
+    place_id, shelf_id, row_id = _place(conn, to, create=True)
     try:
-        res = services.deplacer(conn, code, place_id, shelf_id)
+        res = services.deplacer(conn, code, place_id, shelf_id, row_id)
     except Erreur as e:
         _fail(str(e))
     console.print(f"[{COLOURS.get(res['statut'], 'white')}]{esc(res['message'])}[/]")
@@ -658,7 +701,7 @@ def manual(
     from .sources import bnf
 
     conn = _conn()
-    place_id, shelf_id = _place(conn, place, create=True)
+    place_id, shelf_id, row_id = _place(conn, place, create=True)
     if search and not isbn:
         try:
             with make_client() as client:
@@ -675,7 +718,7 @@ def manual(
                                   type=int, default=0)
             if 1 <= choice <= len(results):
                 try:
-                    res = services.ajouter_depuis_bnf(conn, results[choice - 1], place_id, shelf_id, owner)
+                    res = services.ajouter_depuis_bnf(conn, results[choice - 1], place_id, shelf_id, owner, rangee_id=row_id)
                 except Erreur as e:
                     _fail(str(e))
                 console.print(f"[green]✓[/green] added as {res.get('reference') or res['code']} (BnF record)")
@@ -689,7 +732,7 @@ def manual(
                   sujets=subjects)
     try:
         res = services.creer_notice_manuelle(conn, title, authors, isbn=isbn, lieu_id=place_id,
-                                             etagere_id=shelf_id, proprietaire=owner,
+                                             etagere_id=shelf_id, rangee_id=row_id, proprietaire=owner,
                                              **{k: v for k, v in fields.items() if v is not None})
     except Erreur as e:
         _fail(str(e))
@@ -772,9 +815,9 @@ def duplicates(
 def inventory(zone: str = typer.Argument(..., help="Place or Place/Shelf to check")):
     """Check a shelf: scan everything on it, then :done for the report."""
     conn = _conn()
-    place_id, shelf_id = _place(conn, zone)
+    place_id, shelf_id, row_id = _place(conn, zone)
     try:
-        inv_id = services.demarrer_inventaire(conn, place_id, shelf_id)
+        inv_id = services.demarrer_inventaire(conn, place_id, shelf_id, row_id)
     except Erreur as e:
         _fail(str(e))
     console.print(Panel.fit(f"Scan every book on [bold]{esc(zone)}[/bold]. Type [bold]:done[/bold] for the report.",
@@ -790,6 +833,7 @@ def inventory(zone: str = typer.Argument(..., help="Place or Place/Shelf to chec
             continue
         try:
             res = services.scanner_inventaire(conn, inv_id, code)
+            services.noter_scan(conn, res, services.bibliothecaire_local(conn), "inventaire")
         except Erreur as e:
             console.print(f"[red]✗ {esc(str(e))}[/red]\a")
             continue
@@ -916,7 +960,8 @@ def config(key: str = typer.Argument(None), value: str = typer.Argument(None),
     conn = _conn()
     known = {"google_api_key": "Google Books API key (optional)", "systeme": "default classification system",
              "langue": "web interface language (fr or en)",
-             "proprietaire": "your name as the owner of your books (renames all your copies)"}
+             "proprietaire": "your name as the owner of your books (renames all your copies)",
+             "bibliothecaire": "who scans from this computer and the command line, for the statistics"}
     if key and (value or clear):
         if key not in known:
             _fail(f"unknown setting (choices: {', '.join(known)})")
@@ -972,23 +1017,119 @@ def stats():
 
 @app.command()
 def export(
-    format: str = typer.Option("xlsx", "--format", "-f", help="xlsx | csv"),
+    format: str = typer.Option("xlsx", "--format", "-f", help="xlsx | csv | goodreads | babelio"),
     output: Path = typer.Option(None, "--output", "-o"),
     system: str = typer.Option(None, "--system", "-s"),
+    place: list[str] = typer.Option(None, "--place", "-p", help="Only these places (repeatable)"),
+    only_with_status: bool = typer.Option(False, "--only-with-status",
+                                          help="goodreads, babelio: only books with a reading status"),
+    no_places: bool = typer.Option(False, "--no-places", help="goodreads: leave the Bookshelves column empty"),
 ):
-    """Export the collection (Excel: one overall sheet plus one per place)."""
+    """Export the collection (Excel: one overall sheet plus one per place), or a file for a reading app."""
     from . import export as exporter
 
     _check_system(system)
     conn = _conn()
-    if format not in ("xlsx", "csv"):
-        _fail("format: xlsx or csv")
+    if format not in ("xlsx", "csv", "goodreads", "babelio"):
+        _fail("format: xlsx, csv, goodreads or babelio")
+    for_app = format in ("goodreads", "babelio")
+    if only_with_status and not for_app:
+        _fail("--only-with-status: only with the goodreads and babelio formats")
+    if no_places and format != "goodreads":
+        _fail("--no-places: only with the goodreads format")
+    places = []
+    for spec in place or []:
+        place_id, shelf_id, _ = _place(conn, spec)
+        if shelf_id:
+            _fail(f"--place: a whole place, not a shelf: {spec}")
+        places.append(place_id)
+    # each selection keeps its own file: exporting a second place must not replace the first
+    stem = "-".join([f"library-{date.today()}", *map(_slug, place or []), *([format] if for_app else [])])
+    name = f"{stem}.csv" if for_app else f"{stem}.{format}"
     # next to the database (data/exports by default): the code folder may be read-only (server install)
-    output = output or db.chemin_base(conn).parent / "exports" / f"library-{date.today()}.{format}"
+    output = output or db.chemin_base(conn).parent / "exports" / name
     output.parent.mkdir(parents=True, exist_ok=True)
-    data = exporter.xlsx_bytes(conn, systeme=system) if format == "xlsx" else exporter.csv_bytes(conn, systeme=system)
+    if format == "xlsx":
+        data = exporter.xlsx_bytes(conn, systeme=system, lieux=places)
+    elif format == "csv":
+        data = exporter.csv_bytes(conn, systeme=system, lieux=places)
+    elif format == "goodreads":
+        data = exporter.goodreads_csv(conn, avec_statut=only_with_status, lieux=places, avec_lieux=not no_places)
+    else:
+        data = exporter.babelio_csv(conn, avec_statut=only_with_status, lieux=places)
     output.write_bytes(data)
     console.print(f"[green]✓[/green] {esc(str(output))}")
+    if for_app:
+        _app_export_report(exporter.bilan_applis(conn, avec_statut=only_with_status, lieux=places), format)
+
+
+def _slug(name: str) -> str:
+    return "-".join("".join(c if c.isalnum() else " " for c in db.norm(name)).split()) or "place"
+
+
+def _app_export_report(bilan: dict, format: str) -> None:
+    console.print(f"{bilan[format]} book(s)")
+    if format == "goodreads" and bilan["sans_titre"]:
+        console.print(f"[yellow]{bilan['sans_titre']} book(s) left out: no title yet (biblio resolve)[/yellow]")
+    if format == "babelio":
+        if bilan["sans_code"]:
+            console.print(f"[yellow]{bilan['sans_code']} book(s) left out: Babelio needs an ISBN or EAN[/yellow]")
+        if bilan["babelio"] > bilan["limite_babelio"]:
+            console.print(f"[yellow]Babelio takes {bilan['limite_babelio']} lines per import: "
+                          "split this file before sending it.[/yellow]")
+
+
+@app.command("import-babelio")
+def import_babelio(
+    file: Path = typer.Argument(..., help="The CSV from Babelio's “Exporter ma bibliothèque”"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="When they disagree, Babelio wins over this database"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Only show what would change"),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation"),
+):
+    """Bring reading statuses and ratings back from a Babelio library export."""
+    from . import babelio, partage
+
+    if not file.is_file():
+        _fail(f"file not found: {file}")
+    conn = _conn()
+    content = file.read_bytes()
+    try:
+        preview = babelio.importer(conn, content, ecraser=overwrite, simulation=True)
+    except Erreur as e:
+        _fail(str(e))
+    _babelio_report(preview)
+    if dry_run:
+        console.print("[dim]Dry run: nothing changed.[/dim]")
+        return
+    if not preview["statuts"] and not preview["notes"]:
+        console.print("[green]Nothing to import.[/green]")
+        return
+    if not yes and not typer.confirm("Apply?"):
+        raise typer.Abort()
+    backup = partage.sauvegarder(conn, "avant-babelio")
+    babelio.importer(conn, content, ecraser=overwrite)
+    console.print(f"[green]✓ imported[/green] [dim](previous database kept in {esc(backup.name)})[/dim]")
+
+
+def _babelio_report(report: dict) -> None:
+    console.print(f"{report['lignes']} line(s) in the file")
+    for key, label in (("statuts", "reading statuses to import"), ("notes", "ratings to import"),
+                       ("arrondies", "half-star ratings rounded up"),
+                       ("par_titre", "books matched by title and author (another edition)"),
+                       ("a_jour", "books with nothing to change")):
+        if report[key]:
+            console.print(f"  {report[key]:>5}  {label}")
+    if report["statuts_inconnus"]:
+        console.print(f"[yellow]Unknown statuses, ignored: {esc(', '.join(report['statuts_inconnus']))}[/yellow]")
+    if report["desaccords"]:
+        console.print(f"[yellow]{len(report['desaccords'])} disagreement(s), this database is kept "
+                      "(--overwrite to take Babelio's):[/yellow]")
+        for d in report["desaccords"]:
+            console.print(f"  {esc(d['reference'])}  {esc(d['titre'] or '')}: {d['champ']} {d['ici']} here, {d['babelio']} on Babelio")
+    if report["absents"]:
+        console.print(f"[yellow]{len(report['absents'])} book(s) not in this library, ignored:[/yellow]")
+        for a in report["absents"]:
+            console.print(f"  {esc(a['isbn'] or '—')}  {esc(a['titre'])} [dim]{esc(a['auteur'])}[/dim]")
 
 
 @app.command()
@@ -1124,7 +1265,7 @@ def sql(query: str = typer.Argument(None, help="SQL query; without argument, ope
         console.print(f"[dim]{esc(str(path))} — tables: notices, exemplaires, personnes, classifications, lieux, "
                       "etageres, raw_responses, mouvements, inventaires, prets, suppressions. Quit: .quit[/dim]")
         if sys.platform == "win32":                     # pas de exec sous Windows : on attend le shell
-            raise typer.Exit(subprocess.run(["sqlite3", "-box", str(path)]).returncode)
+            raise typer.Exit(subprocess.run(["sqlite3", "-box", str(path)], check=False).returncode)
         os.execvp("sqlite3", ["sqlite3", "-box", str(path)])
     conn = _conn()
     try:
@@ -1139,6 +1280,78 @@ def sql(query: str = typer.Argument(None, help="SQL query; without argument, ope
     else:
         conn.commit()
         console.print(f"[green]✓ {cur.rowcount} row(s) changed[/green]")
+
+
+# --- Accounts ---------------------------------------------------------------------
+
+def _account(conn, username: str) -> dict:
+    account = auth.par_identifiant(conn, username)
+    if not account:
+        _fail(f"no account named “{username}”")
+    return account
+
+
+@user_app.command("add")
+def user_add(username: str, role: str = typer.Option("lecteur", "--role", "-r", help=f"One of: {', '.join(auth.ROLES)}"),
+             name: str = typer.Option(None, "--name"), code: str = typer.Option(None, "--code", help="Default: six random digits")):
+    """Create an account and print its code: it cannot be shown again."""
+    conn = _conn()
+    try:
+        given = auth.creer_compte(conn, username, role, name, code)
+    except auth.ErreurCompte as e:
+        _fail(str(e))
+    auth.journaliser(conn, "compte_cree", "biblio user", f"{username} ({role})")
+    console.print(f"[green]✓[/green] “{esc(username)}” ({role}), code: [bold]{given}[/bold]")
+
+
+@user_app.command("list")
+def user_list():
+    """List accounts, their role and connected devices."""
+    table = Table("Username", "Name", "Role", "Active", "Last sign-in", "Devices")
+    for c in auth.comptes(_conn()):
+        table.add_row(esc(c["identifiant"]), esc(c["nom"] or ""), c["role"], "yes" if c["actif"] else "no",
+                      (c["derniere_connexion"] or "never")[:16], str(len(c["appareils"])))
+    console.print(table)
+
+
+@user_app.command("reset")
+def user_reset(username: str, code: str = typer.Option(None, "--code", help="Default: six random digits")):
+    """Give an account a new code; its devices are signed out."""
+    conn = _conn()
+    account = _account(conn, username)
+    try:
+        given = auth.changer_code(conn, account["id"], code)
+    except auth.ErreurCompte as e:
+        _fail(str(e))
+    auth.journaliser(conn, "code_reinitialise", "biblio user", username)
+    console.print(f"[green]✓[/green] “{esc(username)}”, new code: [bold]{given}[/bold]")
+
+
+@user_app.command("disable")
+def user_disable(username: str, enable: bool = typer.Option(False, "--enable", help="Enable it again instead")):
+    """Disable an account and sign out its devices."""
+    conn = _conn()
+    account = _account(conn, username)
+    try:
+        auth.modifier_compte(conn, account["id"], actif=enable)
+    except auth.ErreurCompte as e:
+        _fail(str(e))
+    auth.journaliser(conn, "compte_modifie", "biblio user", username)
+    console.print(f"[green]✓[/green] “{esc(username)}” {'enabled' if enable else 'disabled'}")
+
+
+@app.command()
+def sources():
+    """Test every catalogue and show whether it answers."""
+    conn = _conn()
+    sante.tester(conn)
+    colours = {"ok": "green", "lent": "yellow", "sans_cle": "yellow", "panne": "red", "cle_refusee": "red"}
+    table = Table("Catalogue", "For", "Status", "Time", "Answers kept", "Detail")
+    for c in sante.catalogues(conn):
+        colour = colours.get(c["etat"], "dim")
+        table.add_row(c["nom"], c["famille"], f"[{colour}]{tr(sante.NOMS_ETATS[c['etat']])}[/{colour}]",
+                      f"{c['latence']} ms" if c["latence"] is not None else "—", str(c["ok"]), esc(c["message"] or ""))
+    console.print(table)
 
 
 @app.command()
